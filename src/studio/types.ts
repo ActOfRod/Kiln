@@ -1,0 +1,90 @@
+export type ClipColor = "ember" | "clay" | "gold" | "sage";
+export type TrackKind = "drums" | "bass" | "keys" | "lead" | "sample";
+export type Wave = "sine" | "triangle" | "sawtooth" | "square";
+export type Follow = "session" | "arrange";
+export type StudioView = "session" | "arrange" | "mix" | "play";
+
+export interface Note {
+  id: string;
+  pitch: number;
+  start: number;
+  duration: number;
+  velocity: number;
+}
+
+export interface Clip {
+  id: string;
+  name: string;
+  color: ClipColor;
+  length: number;
+  notes: Note[];
+}
+
+export interface ArrangeClip {
+  id: string;
+  name: string;
+  color: ClipColor;
+  start: number;
+  length: number;
+  patternLength: number;
+  notes: Note[];
+}
+
+export interface Device {
+  waveform: Wave;
+  attack: number;
+  decay: number;
+  cutoff: number;
+  resonance: number;
+  drive: number;
+  delayMix: number;
+  delayDivision: number;
+  reverb: number;
+  sampleOffset: number;
+  sampleEnd: number;
+  sampleLoop: boolean;
+}
+
+export interface Track {
+  id: string;
+  name: string;
+  kind: TrackKind;
+  color: ClipColor;
+  volume: number;
+  pan: number;
+  mute: boolean;
+  solo: boolean;
+  clips: (Clip | null)[];
+  arrangement: ArrangeClip[];
+  device: Device;
+}
+
+export interface Scene {
+  id: string;
+  name: string;
+}
+
+export interface Project {
+  name: string;
+  bpm: number;
+  swing: number;
+  bars: number;
+  master: number;
+  scenes: Scene[];
+  tracks: Track[];
+}
+
+export interface LaunchState {
+  clipIndex: number;
+  launchBeat: number;
+  previous?: { clipIndex: number; launchBeat: number };
+}
+
+export interface Pattern {
+  id: string;
+  name: string;
+  kind: TrackKind;
+  length: number;
+  color: ClipColor;
+  notes: Note[];
+}

@@ -1,0 +1,115 @@
+@import "@fontsource/familjen-grotesk/latin-400.css";
+@import "@fontsource/familjen-grotesk/latin-500.css";
+@import "@fontsource/familjen-grotesk/latin-600.css";
+@import "@fontsource/familjen-grotesk/latin-700.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #100e0c;
+  --color-surface: #1a1714;
+  --color-surface-2: #241f1b;
+  --color-surface-3: #312a24;
+  --color-fg: #f4efe6;
+  --color-muted: #b7aea3;
+  --color-faint: #8a8176;
+  --color-line: #3a332c;
+  --color-accent: #e8893a;
+  --color-accent-ink: #1a1008;
+  --color-record: #e24b3b;
+  --color-clip-ember: #e8893a;
+  --color-clip-clay: #d4785a;
+  --color-clip-gold: #e0c06a;
+  --color-clip-sage: #9fb58a;
+  --font-sans: "Familjen Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 1rem;
+  --shadow-sheet: 0 -16px 48px rgba(0, 0, 0, 0.45);
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    overflow: hidden;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="slider"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  input[type="range"] {
+    accent-color: var(--color-accent);
+    height: 2.75rem;
+    width: 100%;
+    cursor: pointer;
+  }
+
+  input[type="text"] {
+    user-select: text;
+  }
+}
+
+.studio {
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+.safe-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.press {
+  transition: transform 150ms ease;
+}
+
+.press:active {
+  transform: scale(0.97);
+}
+
+.play-nudge {
+  margin-left: 2px;
+}
+
+.shadow-sheet {
+  box-shadow: var(--shadow-sheet);
+}
+
+.clip-live {
+  animation: kiln-live 1.1s ease-in-out infinite;
+}
+
+@keyframes kiln-live {
+  50% {
+    filter: brightness(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .press {
+    transition: none;
+  }
+
+  .clip-live {
+    animation: none;
+  }
+}
