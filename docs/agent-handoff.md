@@ -21,9 +21,11 @@ Main code: `StudioApp.tsx`, `ArrangeView.tsx`, `ClipView.tsx`,
   offline merge, personal undo. The migration is applied to project
   `nfcgdbmasvoamdmykjwp` and was exercised as the `anon` role.
 - GitHub Pages workflow deploys `dist-pages` on push to `main`. Repository
-  variable `VITE_SUPABASE_URL` is set; **`VITE_SUPABASE_PUBLISHABLE_KEY` is not**
-  (the agent had no dashboard access). Until it is added, the Pages site shows
-  collaboration as not configured.
+  variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are set.
+- Supabase Realtime is verified end to end (`scripts/collab-cloud-check.mjs`,
+  14 checks, three isolated browsers). Presence is slow by design (≤ every 4 s)
+  because Supabase closes channels over its presence rate limit; live activity
+  uses "focus" broadcasts, edits are coalesced, and channels auto-reconnect.
 - The database password was shared in chat; the owner should rotate it. It is
   not stored anywhere in the repository.
 
@@ -31,14 +33,15 @@ Main code: `StudioApp.tsx`, `ArrangeView.tsx`, `ClipView.tsx`,
 
 Typecheck, `npm run test:studio` (23 unit tests incl. merge convergence),
 smoke-verdict (40), existing library tests (59), studio browser check (20),
-`scripts/clip-browser-check.mjs` (13) and `scripts/collab-browser-check.mjs`
-(16, two pages, local backend) passed. Production Vercel build and the Pages
+`scripts/clip-browser-check.mjs` (13), `scripts/collab-browser-check.mjs`
+(16, two pages, local backend) and `scripts/collab-cloud-check.mjs` (14, real
+Supabase) passed. Production Vercel build and the Pages
 build were smoke-tested with clean consoles. The full script suite keeps the
 same 16 template failures reproduced on the original HEAD.
 
 ## Known limits
 
 Same-region note edits merge at region level; no accounts / view-only links /
-revocation; Realtime untested end to end until the key is added; no
+revocation; no
 pitch-preserving warp; no audio garbage collection; in-memory undo; fixed 4/4.
 Mobile-specific UX remains deferred. Lineage is partial with two recorded gaps.

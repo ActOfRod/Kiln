@@ -59,9 +59,15 @@ The `github-pages` environment only accepts `main`.
    the secret-derived channel name and the secret-checking functions.
 5. Cleanup: `select public.kiln_purge_rooms(interval '180 days');` (maintainer
    role only) deletes idle rooms and their audio.
-6. Two-person smoke test after deploy: open the site, Share, open the link in a
-   private window, check avatars, cursor, a region edit, an audio drag-in and
-   leave / rejoin.
+6. End-to-end cloud check (production build, real Supabase, three isolated
+   browsers, 14 checks):
+   `VITE_SUPABASE_URL=… VITE_SUPABASE_PUBLISHABLE_KEY=… npm run build:pages && node scripts/collab-cloud-check.mjs`.
+   It creates a real "Night Drive" room; delete test rooms afterwards with the
+   maintainer role. Manual check after deploy: Share, open the link in a private
+   window, confirm avatars, cursor, an edit, an audio drag-in and rejoin.
+7. "Client presence rate limit exceeded" closes a Realtime channel. Keep
+   presence updates slow (`PRESENCE_INTERVAL`) and put frequent state in
+   broadcasts; the client reconnects and re-merges automatically.
 
 `node scripts/collab-browser-check.mjs` runs the same two-person flow in dev
 against the local BroadcastChannel backend (used automatically when no
@@ -86,7 +92,7 @@ per-clip audio.
 | Pages site 404 / unstyled           | Confirm the workflow ran on `main`, `PAGES_BASE` matches the repository name, and assets load under `/Kiln/`                       |
 | "Collaboration isn't configured"    | Add the `VITE_SUPABASE_PUBLISHABLE_KEY` repository variable and redeploy                                                           |
 | Share link "not found or invalid"   | Link truncated or room purged; the secret after `#` must be complete                                                               |
-| Live shows Offline                  | Network / Realtime outage; keep working — edits merge when the connection returns                                                  |
+| Live shows Offline                  | Network / Realtime outage or rate limit; KILN reconnects within seconds and merges edits — keep working                            |
 | Collaborator can't hear new audio   | Upload still running (panel shows "Sharing audio…"), file > 60 MB, or room over its 300 MB audio limit                             |
 
 ## Ownership and data maintenance

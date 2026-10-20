@@ -67,7 +67,6 @@ export function supabaseBackend(url: string, publishableKey: string): CollabBack
       const channel: RealtimeChannel = client.channel(name, {
         config: { broadcast: { self: false }, presence: { key: clientId } },
       });
-      let current: Presence | null = null;
       channel
         .on("broadcast", { event: "kiln" }, ({ payload }) => handlers.onMessage(payload))
         .on("presence", { event: "sync" }, () => {
@@ -75,10 +74,8 @@ export function supabaseBackend(url: string, publishableKey: string): CollabBack
           handlers.onPresence(Object.values(state).flatMap((metas) => metas.slice(-1)));
         })
         .subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            handlers.onStatus("live");
-            if (current) void channel.track(current);
-          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED")
+          if (status === "SUBSCRIBED") handlers.onStatus("live");
+          else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED")
             handlers.onStatus("offline");
         });
       handlers.onStatus("connecting");
@@ -88,8 +85,8 @@ export function supabaseBackend(url: string, publishableKey: string): CollabBack
           if (result !== "ok") throw new Error("Live update could not be sent.");
         },
         track: async (presence) => {
-          current = presence;
-          await channel.track(presence);
+          const result = await channel.track(presence);
+          if (result !== "ok") throw new Error(`Presence update ${result}`);
         },
         close: async () => {
           await client.removeChannel(channel);

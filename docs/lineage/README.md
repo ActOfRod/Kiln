@@ -7,9 +7,9 @@ Desktop-first music studio. Songs, the sound library and audio stay in the brows
 **Assurance: PARTIAL** | Environment: Supabase project nfcgdbmasvoamdmykjwp \(public schema\) plus browser-local stores
 Scope: kiln\_rooms and kiln\_room\_assets \(every column\), their three writer functions, the browser RPC boundary and prior-state nodes, the collaboration consumer, and browser-local stores listed under browser\_stores.
 
-Reviewed: 2026-10-20T13:17:28Z by GitHub Copilot
-Review: Reviewed final source after reverting incidental formatting: per-clip audio assets and Clip View, drag-and-drop, GitHub Pages build, and Supabase live collaboration. Lineage covers supabase.public.kiln\_rooms and kiln\_room\_assets \(all 14 columns, captured read-only from information\_schema\), their three SECURITY DEFINER writers \(saved SQL = applied migration\), the browser RPC boundary, prior-state nodes and the collaboration consumer; anon-role access tests, 23 unit tests and 49 browser workflow checks passed. Partial: generator lacks a Postgres snapshot origin and Realtime awaits the publishable key.
-Source fingerprint: `63232adfd641495977e9a6d6662faadd14189838a2ed4ded9a048fba2e5d6d5e`
+Reviewed: 2026-10-20T13:36:55Z by GitHub Copilot
+Review: Re-reviewed after enabling the Supabase publishable key: live activity moved from presence to throttled broadcasts after Supabase closed channels for exceeding its presence rate limit; edits are coalesced and channels auto-reconnect. Verified end to end with a production build, real Supabase and three isolated browsers \(14 checks\); test rooms deleted. Tables, columns and writer functions unchanged; remaining partial gap is the generator's missing Postgres snapshot origin.
+Source fingerprint: `0b2098a321053df58de01e2eabb15143dff5ef48dc51d4a578ad302828733220`
 
 [Interactive investigation](index.html) | [Manifest](lineage.json) | [Schema snapshot](<schema-snapshot.json>)
 
@@ -19,15 +19,13 @@ This is a recorded evidence view, not a live warehouse certification.
 
 - Assurance is partial: complete the recorded gaps before release
 - Gap snapshot-origin \(Strict schema reconciliation for Supabase tables\): The lineage generator only accepts Unity Catalog, approved-contract or example snapshots. The live Postgres capture exists as evidence but cannot be presented as one of those origins without misrepresenting it.; owner: Repository maintainer and lineage-tool maintainer
-- Gap e2e-cloud-test \(End-to-end browser test against Supabase Realtime\): The project's publishable key was not available to the agent, so Realtime broadcast/presence were not exercised from a browser.; owner: Repository maintainer
 - Schema snapshot: missing or empty file docs/lineage/schema-snapshot.json
 - Live column metadata was captured read-only from Postgres information\_schema into docs/lineage/evidence/supabase-schema-capture.json. The generator's snapshot origins are Unity Catalog, approved contract or example, so that capture is recorded as evidence rather than as a certified schema snapshot.
 - Deletes are not modeled as column mappings: kiln\_purge\_rooms \(maintainer-only\) removes idle rooms and ON DELETE CASCADE removes their audio chunks.
 - Realtime broadcast/presence messages are transient and never stored in Postgres; they are documented in docs/collaboration.md, not as tables.
-- The cloud path was verified at the database level as the anon role; end-to-end browser tests used the identical session code against the development backend because the publishable API key was not available to the agent.
 - Browser stores \(localStorage / IndexedDB\) are not tables and remain documented in browser\_stores.
+- Cloud collaboration was verified end to end on 2026-10-20 with scripts/collab-cloud-check.mjs: a production build, real Supabase Realtime and RPC, and three isolated browser profiles. Test rooms were deleted afterwards.
 - snapshot-origin: Add a Postgres information\_schema origin to the generator \(or have the owner attest an approved contract\), then promote the capture to docs/lineage/schema-snapshot.json and re-run check. (owner: Repository maintainer and lineage-tool maintainer)
-- e2e-cloud-test: Add VITE\_SUPABASE\_PUBLISHABLE\_KEY as a repository variable, deploy, and run the two-person flow in docs/runbook.md against the Pages site. (owner: Repository maintainer)
 
 ## Complete table source matrix
 
@@ -128,7 +126,7 @@ Write behavior: public.kiln\_create\_room: validates secret length \(32-200\) an
 SQL: [supabase/migrations/20261020130000\_kiln\_collaboration.sql](<../../supabase/migrations/20261020130000_kiln_collaboration.sql>) (executable); implementation: [supabase/migrations/20261020130000\_kiln\_collaboration.sql](<../../supabase/migrations/20261020130000_kiln_collaboration.sql>).
 Normalized SQL SHA-256: `4ad8758ad08125a0569a8e91337fc9e80e4639b999ef070ea212e43fb080da81`
 Row dependencies: kiln\_browser.rpc.request.p\_secret \[control\]; kiln\_browser.rpc.request.p\_project \[control\]
-Evidence: migration-sql, schema-capture, anon-role-test
+Evidence: anon-role-test, cloud-e2e, migration-sql, schema-capture
 
 ### save-room
 
@@ -138,7 +136,7 @@ Write behavior: public.kiln\_save\_room: after kiln\_assert\_access, conditional
 SQL: [supabase/migrations/20261020130000\_kiln\_collaboration.sql](<../../supabase/migrations/20261020130000_kiln_collaboration.sql>) (executable); implementation: [supabase/migrations/20261020130000\_kiln\_collaboration.sql](<../../supabase/migrations/20261020130000_kiln_collaboration.sql>).
 Normalized SQL SHA-256: `4ad8758ad08125a0569a8e91337fc9e80e4639b999ef070ea212e43fb080da81`
 Row dependencies: supabase.public.kiln\_rooms@prior.id \[filter\]; supabase.public.kiln\_rooms@prior.secret\_hash \[filter\]; supabase.public.kiln\_rooms@prior.revision \[filter\]; kiln\_browser.rpc.request.p\_room \[filter\]; kiln\_browser.rpc.request.p\_secret \[filter\]; kiln\_browser.rpc.request.p\_expected\_revision \[filter\]
-Evidence: migration-sql, schema-capture, anon-role-test
+Evidence: anon-role-test, cloud-e2e, migration-sql, schema-capture
 
 ### put-asset-chunk
 
@@ -148,7 +146,7 @@ Write behavior: public.kiln\_put\_asset\_chunk: after kiln\_assert\_access and t
 SQL: [supabase/migrations/20261020130000\_kiln\_collaboration.sql](<../../supabase/migrations/20261020130000_kiln_collaboration.sql>) (executable); implementation: [supabase/migrations/20261020130000\_kiln\_collaboration.sql](<../../supabase/migrations/20261020130000_kiln_collaboration.sql>).
 Normalized SQL SHA-256: `4ad8758ad08125a0569a8e91337fc9e80e4639b999ef070ea212e43fb080da81`
 Row dependencies: supabase.public.kiln\_rooms@prior.id \[filter\]; supabase.public.kiln\_rooms@prior.secret\_hash \[filter\]; kiln\_browser.rpc.request.p\_secret \[filter\]; supabase.public.kiln\_room\_assets@prior.room\_id \[filter\]
-Evidence: migration-sql, schema-capture, anon-role-test
+Evidence: anon-role-test, cloud-e2e, migration-sql, schema-capture
 
 ## Application consumers
 
@@ -173,3 +171,4 @@ Access control: In-app view shows sanitized structure only: no user songs, audio
 | browser-library | repository\_inspection | 2026-10-19T18:42:31Z | [src/studio/library.ts](<../../src/studio/library.ts>)<br>Library originals and metadata are stored in kiln-library.sounds. Project originals are copied into kiln-samples.buffers under new track IDs. |
 | audio-render | repository\_inspection | 2026-10-19T18:42:31Z | [src/studio/engine.ts](<../../src/studio/engine.ts>)<br>Project notes and decoded source audio feed per-track effects and the stereo master. Offline rendering uses the same graph and downloads encoded PCM or MP3. |
 | browser-regressions | test | 2026-10-19T18:42:31Z | [scripts/studio-browser-check.mjs](<../../scripts/studio-browser-check.mjs>)<br>20 isolated browser checks verified library search/favorites and concurrent metadata updates, project-audio copy and backup roundtrip, reload persistence, decoded non-silent stereo MP3/WAV, 128-bar rendering, region movement and phase-preserving splitting, live graph continuity, missing-source retries and visible lineage navigation. |
+| cloud-e2e | test | 2026-10-20T13:36:44Z | [scripts/collab-cloud-check.mjs](<../../scripts/collab-cloud-check.mjs>)<br>14 checks: room creation, presence, live edit sync, simultaneous edits, selection and cursor, region drag, audio upload and download, personal undo, offline merge and a new visitor loading every saved change. |

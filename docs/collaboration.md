@@ -60,8 +60,12 @@ audio assets ─▶ 512 KiB chunks ─▶ kiln_put_asset_chunk ─▶ kiln_get_a
   stamp. Saves use an expected revision; on conflict the client merges the
   stored snapshot with its own entity by entity and retries.
 - **Transport** (`src/collab/supabase-backend.ts`): Supabase Postgres functions
-  and Realtime broadcast / presence, using only the public publishable key. The
-  channel name is derived from a hash of the link secret.
+  and Realtime, using only the public publishable key. The channel name is
+  derived from a hash of the link secret. Edits are coalesced per entity and
+  sent at most ~8 times a second. Live activity (cursor, selection, view,
+  playhead) is a throttled "focus" broadcast; Realtime _presence_ is updated at
+  most every 4 seconds because Supabase closes channels that exceed its presence
+  rate limit. If a channel closes, KILN rebuilds it and merges anything missed.
 - **Security**: tables have row-level security with no policies and no grants;
   browsers can only call `kiln_*` functions, each of which checks the secret's
   SHA-256 hash. Songs are capped at 5 MB, audio at 300 MB per room, 60 MB per file.

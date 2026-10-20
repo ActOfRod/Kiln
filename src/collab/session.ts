@@ -134,6 +134,14 @@ let saveChain: Promise<void> = Promise.resolve();
 let needsResync = false;
 let presenceTimer: ReturnType<typeof setTimeout> | undefined;
 let heartbeat: ReturnType<typeof setInterval> | undefined;
+let connection: { backend: CollabBackend; name: string } | null = null;
+let missedUpdates = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+// Realtime limits each client's message rate, so edits are coalesced per entity
+// (last write wins anyway) and sent at most ~8 times per second.
+const outgoing = new Map<string, Op>();
+let opsTimer: ReturnType<typeof setTimeout> | undefined;
+let lastOpsAt = 0;
 let selection: { regionId: string | null; cursor: Presence["cursor"] } = {
   regionId: null,
   cursor: null,
@@ -234,7 +242,7 @@ function presenceNow(): Presence {
     view: studio.view,
     trackId: studio.selectedTrackId,
     regionId: selection.regionId,
-    cursor: selection.cursor,
+    cursor: null,
     playing: studio.playing,
     beat: studio.playing ? engine.currentBeat() : studio.beat,
     bpm: studio.project.bpm,
@@ -242,23 +250,56 @@ function presenceNow(): Presence {
   };
 }
 
-function publishPresence(delay = 90) {
+let lastPresenceAt = 0;
+
+/**
+ * Supabase closes channels that update presence too often, so presence is a
+ * slow (every few seconds at most) snapshot for people who join later. Live
+ * activity — cursor, selection, view and playhead — travels as "focus"
+ * broadcasts instead.
+ */
+const PRESENCE_INTERVAL = 4000;
+function publishPresence(delay = 0) {
   if (!channel || presenceTimer) return;
+  const wait = Math.max(delay, PRESENCE_INTERVAL - (Date.now() - lastPresenceAt));
   presenceTimer = setTimeout(() => {
     presenceTimer = undefined;
-    void channel?.track(presenceNow()).catch(() => {});
-  }, delay);
+    lastPresenceAt = Date.now();
+    void channel?.track(presenceNow()).catch(() => {
+      setTimeout(() => publishPresence(), PRESENCE_INTERVAL);
+    });
+  }, wait);
 }
+
+let focusTimer: ReturnType<typeof setTimeout> | undefined;
+let lastFocusAt = 0;
+/** Fast, throttled broadcast of what you are pointing at, editing and hearing. */
+function sendFocus() {
+  if (focusTimer || !channel) return;
+  focusTimer = setTimeout(
+    () => {
+      focusTimer = undefined;
+      lastFocusAt = Date.now();
+      const { name: _name, color: _color, ...focus } = presenceNow();
+      void broadcast({ ...focus, cursor: selection.cursor, type: "focus", from: clientId });
+    },
+    Math.max(0, 160 - (Date.now() - lastFocusAt)),
+  );
+}
+
+const FOCUS_FIELDS = ["view", "trackId", "regionId", "playing", "beat", "bpm", "at"] as const;
 
 export function setSelection(regionId: string | null) {
   if (selection.regionId === regionId) return;
   selection = { ...selection, regionId };
+  sendFocus();
   publishPresence();
 }
 
 export function setCursor(cursor: Presence["cursor"]) {
+  if (!cursor && !selection.cursor) return;
   selection = { ...selection, cursor };
-  publishPresence(70);
+  sendFocus();
 }
 
 async function broadcast(message: Record<string, unknown>) {
@@ -269,7 +310,8 @@ async function broadcast(message: Record<string, unknown>) {
     return;
   }
   await channel.send(message).catch(() => {
-    needsResync = true;
+    // Lost edits are recovered by a reload signal after the next save.
+    if (message.type === "ops") needsResync = true;
   });
 }
 
@@ -301,15 +343,37 @@ function onMessage(message: unknown) {
   const msg = message as { type?: string; ops?: unknown; from?: unknown };
   if (msg.type === "ops" && Array.isArray(msg.ops))
     receiveOps(msg.ops.filter(isOp), typeof msg.from === "string" ? msg.from : "");
-  else if (msg.type === "resync") void pullAndMerge().catch(fail);
+  else if (msg.type === "focus" && typeof msg.from === "string") {
+    // Fast path for live activity; presence confirms the same state later.
+    const focus = sanitizePresence({ ...(message as object), clientId: msg.from });
+    if (focus)
+      useCollab.setState((st) => ({
+        peers: st.peers.map((peer) =>
+          peer.clientId === msg.from
+            ? { ...peer, ...pickFocus(focus), cursor: focus.cursor }
+            : peer,
+        ),
+      }));
+  } else if (msg.type === "resync") void pullAndMerge().catch(fail);
   else if (msg.type === "asset") scheduleAssets();
+}
+
+function pickFocus(p: Presence): Partial<Presence> {
+  return Object.fromEntries(FOCUS_FIELDS.map((key) => [key, p[key]]));
 }
 
 function onPresence(list: Presence[]) {
   const before = useCollab.getState().peers;
   const peers = list
     .map(sanitizePresence)
-    .filter((p): p is Presence => !!p && p.clientId !== clientId);
+    .filter((p): p is Presence => !!p && p.clientId !== clientId)
+    // Focus broadcasts are newer than the slow presence snapshot; keep them.
+    .map((p) => {
+      const known = before.find((b) => b.clientId === p.clientId);
+      return known && known.at >= p.at
+        ? { ...p, ...pickFocus(known), cursor: known.cursor }
+        : { ...p, cursor: known?.cursor ?? p.cursor };
+    });
   for (const peer of peers)
     if (!before.some((p) => p.clientId === peer.clientId)) {
       useCollab.setState({ peers: [...useCollab.getState().peers, peer] });
@@ -330,14 +394,59 @@ function onPresence(list: Presence[]) {
   }
 }
 
+function connect() {
+  if (!connection) return;
+  channel = connection.backend.connect(connection.name, clientId, {
+    onMessage,
+    onPresence,
+    onStatus,
+  });
+}
+
+/** Rebuild the channel if Realtime does not recover by itself. */
+function scheduleReconnect(delay = 4000) {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => {
+    if (!connection || useCollab.getState().status === "live") return;
+    const stale = channel;
+    channel = null;
+    void stale?.close().catch(() => {});
+    connect();
+    scheduleReconnect(Math.min(30000, delay * 2));
+  }, delay);
+}
+
 function onStatus(status: ChannelStatus) {
-  const previous = useCollab.getState().status;
   useCollab.setState({ status });
-  if (status === "live") {
-    publishPresence(0);
-    // Catch up on anything missed while disconnected, then share local edits.
-    if (previous === "offline") void pullAndMerge().catch(fail);
+  if (status === "offline") {
+    missedUpdates = true;
+    scheduleReconnect();
   }
+  if (status === "live") {
+    clearTimeout(reconnectTimer);
+    lastPresenceAt = 0;
+    publishPresence(0);
+    sendFocus();
+    // Catch up on anything missed while disconnected, then share local edits.
+    if (missedUpdates) {
+      missedUpdates = false;
+      void pullAndMerge().catch(fail);
+    }
+  }
+}
+
+function flushOps() {
+  clearTimeout(opsTimer);
+  opsTimer = undefined;
+  lastOpsAt = Date.now();
+  const ops = [...outgoing.values()];
+  outgoing.clear();
+  if (ops.length) void broadcast({ type: "ops", ops, from: clientId });
+}
+
+function queueOps(ops: Op[]) {
+  for (const op of ops) outgoing.set(op.k, op);
+  opsTimer ??= setTimeout(flushOps, Math.max(0, 125 - (Date.now() - lastOpsAt)));
 }
 
 /** Load the saved room and merge it with local state, entity by entity. */
@@ -481,7 +590,7 @@ function watchStudio(state: StudioState, prev: StudioState) {
       const stamp = { c: ++lamport, a: clientId };
       const ops: Op[] = changes.map((change) => ({ ...change, s: stamp }));
       for (const op of ops) clocks[op.k] = op.s;
-      void broadcast({ type: "ops", ops, from: clientId });
+      queueOps(ops);
       scheduleSave();
       scheduleAssets();
     }
@@ -492,8 +601,10 @@ function watchStudio(state: StudioState, prev: StudioState) {
     state.playing !== prev.playing ||
     state.project.bpm !== prev.project.bpm ||
     (!state.playing && state.beat !== prev.beat)
-  )
+  ) {
+    sendFocus();
     publishPresence();
+  }
 }
 
 async function enterRoom(room: { id: string; secret: string }, snapshot: RoomSnapshot) {
@@ -524,13 +635,11 @@ async function enterRoom(room: { id: string; secret: string }, snapshot: RoomSna
   });
   setHash(room);
   stopWatching = useStudio.subscribe(watchStudio);
-  channel = backend.connect(await channelName(room.id, room.secret), clientId, {
-    onMessage,
-    onPresence,
-    onStatus,
-  });
+  connection = { backend, name: await channelName(room.id, room.secret) };
+  missedUpdates = false;
+  connect();
   heartbeat = setInterval(() => {
-    if (useStudio.getState().playing) publishPresence(0);
+    if (useStudio.getState().playing) sendFocus();
   }, 1000);
   publishPresence(0);
   for (const id of await backend.listAssets(room.id, room.secret)) uploaded.add(id);
@@ -581,11 +690,14 @@ export async function joinRoom(invite: { id: string; secret: string }, name: str
 export async function leaveRoom(mode: "keep" | "return", updateHash = true) {
   if (!useCollab.getState().room) return;
   clearTimeout(saveTimer);
+  flushOps();
   if (useCollab.getState().dirty) await save().catch(() => {});
   await saveChain;
   stopWatching?.();
   stopWatching = null;
   clearInterval(heartbeat);
+  clearTimeout(reconnectTimer);
+  connection = null;
   await channel?.close().catch(() => {});
   channel = null;
   suspendAutosave(false);
@@ -607,12 +719,17 @@ export function initCollab() {
   };
   read();
   window.addEventListener("hashchange", read);
+  const online = () => {
+    if (connection && useCollab.getState().status !== "live") scheduleReconnect(0);
+  };
+  window.addEventListener("online", online);
   const beforeUnload = (event: BeforeUnloadEvent) => {
     if (useCollab.getState().dirty) event.preventDefault();
   };
   window.addEventListener("beforeunload", beforeUnload);
   return () => {
     window.removeEventListener("hashchange", read);
+    window.removeEventListener("online", online);
     window.removeEventListener("beforeunload", beforeUnload);
   };
 }

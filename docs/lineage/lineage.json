@@ -76,15 +76,15 @@
       "Live column metadata was captured read-only from Postgres information_schema into docs/lineage/evidence/supabase-schema-capture.json. The generator's snapshot origins are Unity Catalog, approved contract or example, so that capture is recorded as evidence rather than as a certified schema snapshot.",
       "Deletes are not modeled as column mappings: kiln_purge_rooms (maintainer-only) removes idle rooms and ON DELETE CASCADE removes their audio chunks.",
       "Realtime broadcast/presence messages are transient and never stored in Postgres; they are documented in docs/collaboration.md, not as tables.",
-      "The cloud path was verified at the database level as the anon role; end-to-end browser tests used the identical session code against the development backend because the publishable API key was not available to the agent.",
-      "Browser stores (localStorage / IndexedDB) are not tables and remain documented in browser_stores."
+      "Browser stores (localStorage / IndexedDB) are not tables and remain documented in browser_stores.",
+      "Cloud collaboration was verified end to end on 2026-10-20 with scripts/collab-cloud-check.mjs: a production build, real Supabase Realtime and RPC, and three isolated browser profiles. Test rooms were deleted afterwards."
     ]
   },
   "review": {
-    "reviewed_at": "2026-10-20T13:17:28Z",
+    "reviewed_at": "2026-10-20T13:36:55Z",
     "reviewed_by": "GitHub Copilot",
-    "summary": "Reviewed final source after reverting incidental formatting: per-clip audio assets and Clip View, drag-and-drop, GitHub Pages build, and Supabase live collaboration. Lineage covers supabase.public.kiln_rooms and kiln_room_assets (all 14 columns, captured read-only from information_schema), their three SECURITY DEFINER writers (saved SQL = applied migration), the browser RPC boundary, prior-state nodes and the collaboration consumer; anon-role access tests, 23 unit tests and 49 browser workflow checks passed. Partial: generator lacks a Postgres snapshot origin and Realtime awaits the publishable key.",
-    "source_digest": "63232adfd641495977e9a6d6662faadd14189838a2ed4ded9a048fba2e5d6d5e"
+    "summary": "Re-reviewed after enabling the Supabase publishable key: live activity moved from presence to throttled broadcasts after Supabase closed channels for exceeding its presence rate limit; edits are coalesced and channels auto-reconnect. Verified end to end with a production build, real Supabase and three isolated browsers (14 checks); test rooms deleted. Tables, columns and writer functions unchanged; remaining partial gap is the generator's missing Postgres snapshot origin.",
+    "source_digest": "0b2098a321053df58de01e2eabb15143dff5ef48dc51d4a578ad302828733220"
   },
   "evidence": [
     {
@@ -157,6 +157,14 @@
       "path": "scripts/studio-browser-check.mjs",
       "observed_at": "2026-10-19T18:42:31Z",
       "summary": "20 isolated browser checks verified library search/favorites and concurrent metadata updates, project-audio copy and backup roundtrip, reload persistence, decoded non-silent stereo MP3/WAV, 128-bar rendering, region movement and phase-preserving splitting, live graph continuity, missing-source retries and visible lineage navigation."
+    },
+    {
+      "id": "cloud-e2e",
+      "kind": "test",
+      "reference": "Production build against Supabase, three isolated browser profiles",
+      "path": "scripts/collab-cloud-check.mjs",
+      "observed_at": "2026-10-20T13:36:44Z",
+      "summary": "14 checks: room creation, presence, live edit sync, simultaneous edits, selection and cursor, region drag, audio upload and download, personal undo, offline merge and a new visitor loading every saved change."
     }
   ],
   "tables": [
@@ -1155,9 +1163,10 @@
       ],
       "status": "verified",
       "evidence": [
+        "anon-role-test",
+        "cloud-e2e",
         "migration-sql",
-        "schema-capture",
-        "anon-role-test"
+        "schema-capture"
       ]
     },
     {
@@ -1214,9 +1223,10 @@
       ],
       "status": "verified",
       "evidence": [
+        "anon-role-test",
+        "cloud-e2e",
         "migration-sql",
-        "schema-capture",
-        "anon-role-test"
+        "schema-capture"
       ]
     },
     {
@@ -1265,9 +1275,10 @@
       ],
       "status": "verified",
       "evidence": [
+        "anon-role-test",
+        "cloud-e2e",
         "migration-sql",
-        "schema-capture",
-        "anon-role-test"
+        "schema-capture"
       ]
     }
   ],
@@ -1278,13 +1289,6 @@
       "reason": "The lineage generator only accepts Unity Catalog, approved-contract or example snapshots. The live Postgres capture exists as evidence but cannot be presented as one of those origins without misrepresenting it.",
       "owner": "Repository maintainer and lineage-tool maintainer",
       "next_action": "Add a Postgres information_schema origin to the generator (or have the owner attest an approved contract), then promote the capture to docs/lineage/schema-snapshot.json and re-run check."
-    },
-    {
-      "id": "e2e-cloud-test",
-      "subject": "End-to-end browser test against Supabase Realtime",
-      "reason": "The project's publishable key was not available to the agent, so Realtime broadcast/presence were not exercised from a browser.",
-      "owner": "Repository maintainer",
-      "next_action": "Add VITE_SUPABASE_PUBLISHABLE_KEY as a repository variable, deploy, and run the two-person flow in docs/runbook.md against the Pages site."
     }
   ],
   "browser_stores": [

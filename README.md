@@ -69,8 +69,9 @@ Press **Share**, enter your name and **Start live session**, then send the link.
 Everyone with the link edits the same song in real time and sees each other's
 avatars, cursors, selections and playheads; undo only affects your own edits.
 Leaving returns your own browser song (or keeps the shared version). Details:
-[collaboration](docs/collaboration.md). The cloud part uses Supabase and needs
-the repository variable `VITE_SUPABASE_PUBLISHABLE_KEY` (see the runbook).
+[collaboration](docs/collaboration.md). The cloud part uses Supabase; its public
+URL and publishable key are repository variables read at build time (see the
+runbook).
 
 ## Storage and backups
 
