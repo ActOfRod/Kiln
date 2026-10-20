@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "application": {
+    "name": "KILN desktop studio",
+    "summary": "Browser-local music creation: factory and user notes plus imported audio feed project tracks, the shared Web Audio mixer, and local MP3/WAV downloads. There are no application SQL transformations or warehouse tables.",
+    "owner": "ActOfRod/Kiln repository maintainer",
+    "consumers": [],
+    "integration": {
+      "path": "src/components/studio/StudioApp.tsx",
+      "route": "/ (Data Sources & Lineage footer dialog)",
+      "navigation_label": "Data Sources & Lineage",
+      "access_control": "Public sanitized application structure only. No user project names, tags, audio, credentials or filesystem paths are exposed by the documentation view.",
+      "smoke_test": "scripts/studio-browser-check.mjs"
+    }
+  },
+  "assurance": {
+    "mode": "partial",
+    "environment": "Browser-local KILN; repository inspection, no warehouse",
+    "scope": "Studio project metadata, library object store, track-source object store, Web Audio rendering and file downloads. Platform auth/database helpers are not studio data consumers.",
+    "captured_at": "2026-10-19T18:42:31Z",
+    "schema_snapshot": "docs/lineage/schema-snapshot.json",
+    "limitations": [
+      "The table-centric validator has no browser-object-store applicability mode. Its table/Platinum/consumer/snapshot requirements are intentionally not satisfied with fabricated analytical datasets.",
+      "No warehouse schema snapshot or transformation SQL exists because the studio has no warehouse or application SQL.",
+      "Audio remains local and is not inspected in deployed users' browsers. Browser storage retention is not guaranteed."
+    ]
+  },
+  "review": {
+    "reviewed_at": "2026-10-19T19:17:20Z",
+    "reviewed_by": "GitHub Copilot",
+    "summary": "Final desktop studio review: 20 isolated browser checks cover atomic library metadata, independent audio copies, portable project restoration, audible stereo MP3/WAV, 128-bar rendering, region phase and movement, live graph continuity, actionable missing-source retries and lineage navigation. Data remains browser-local; no warehouse tables, columns or SQL exist. Non-tabular strict-certification gap remains explicit.",
+    "source_digest": "87d02dc309914fb44b45d1451d6e87f052e0eeff1d692533e107bc865dae2437"
+  },
+  "evidence": [
+    {
+      "id": "project-contract",
+      "kind": "repository_inspection",
+      "reference": "Project model and validated versioned portable interchange",
+      "path": "src/studio/project-file.ts",
+      "observed_at": "2026-10-19T18:42:31Z",
+      "summary": "Project metadata, numeric bounds, track/clip/region contracts and embedded sample envelope are validated before import."
+    },
+    {
+      "id": "browser-library",
+      "kind": "repository_inspection",
+      "reference": "IndexedDB library sound storage and separate track-source storage",
+      "path": "src/studio/library.ts",
+      "observed_at": "2026-10-19T18:42:31Z",
+      "summary": "Library originals and metadata are stored in kiln-library.sounds. Project originals are copied into kiln-samples.buffers under new track IDs."
+    },
+    {
+      "id": "audio-render",
+      "kind": "repository_inspection",
+      "reference": "Shared live and offline Performer; local LAME MP3 encoding",
+      "path": "src/studio/engine.ts",
+      "observed_at": "2026-10-19T18:42:31Z",
+      "summary": "Project notes and decoded source audio feed per-track effects and the stereo master. Offline rendering uses the same graph and downloads encoded PCM or MP3."
+    },
+    {
+      "id": "browser-regressions",
+      "kind": "test",
+      "reference": "Isolated browser integration check executed October 19, 2026",
+      "path": "scripts/studio-browser-check.mjs",
+      "observed_at": "2026-10-19T18:42:31Z",
+      "summary": "20 isolated browser checks verified library search/favorites and concurrent metadata updates, project-audio copy and backup roundtrip, reload persistence, decoded non-silent stereo MP3/WAV, 128-bar rendering, region movement and phase-preserving splitting, live graph continuity, missing-source retries and visible lineage navigation."
+    }
+  ],
+  "tables": [],
+  "transformations": [],
+  "gaps": [
+    {
+      "id": "non-tabular-applicability",
+      "subject": "Table-centric strict lineage assurance",
+      "reason": "This application uses browser object stores, not relational or analytical tables. There is no real Platinum dataset, SQL transformation, warehouse schema snapshot or table-access consumer to certify.",
+      "owner": "Repository maintainer and lineage-tool maintainer",
+      "next_action": "Define an approved non-tabular applicability contract before requesting strict table-lineage certification. Until then retain partial assurance, documented browser flow and executable application tests; do not invent tables or SQL."
+    }
+  ],
+  "browser_stores": [
+    {
+      "id": "localStorage/kiln-studio-v1",
+      "fields": [
+        "project",
+        "hintDismissed",
+        "metronome"
+      ],
+      "writer": "src/studio/store.ts",
+      "readers": [
+        "StudioApp",
+        "ArrangeView",
+        "SessionView",
+        "MixView",
+        "PlayView",
+        "TrackInspector",
+        "ExportDialog"
+      ],
+      "origin": "factory project, user edits, or validated portable project",
+      "notes": "No audio bytes, playing state or undo snapshots are persisted here."
+    },
+    {
+      "id": "IndexedDB/kiln-library/sounds",
+      "fields": [
+        "id",
+        "name",
+        "tags",
+        "favorite",
+        "duration",
+        "addedAt",
+        "data"
+      ],
+      "writer": "src/studio/library.ts",
+      "readers": [
+        "LibraryBrowser"
+      ],
+      "origin": "User-selected local audio; duration measured by browser decoder; user-entered name/tags/favorite; system-generated ID/date",
+      "notes": "Reusable originals. Deleting a library record does not delete project-source copies."
+    },
+    {
+      "id": "IndexedDB/kiln-samples/buffers",
+      "fields": [
+        "trackId key",
+        "original encoded audio ArrayBuffer"
+      ],
+      "writer": "src/studio/samples.ts",
+      "readers": [
+        "engine.ts sample restore",
+        "store.ts portable export"
+      ],
+      "origin": "Copied library source, direct file/microphone input, or validated portable audio",
+      "notes": "Decoded audio and waveform peaks are transient in-memory derivatives. One source per audio track."
+    }
+  ]
+}

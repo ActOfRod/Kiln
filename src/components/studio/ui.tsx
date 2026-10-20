@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { ClipColor } from "@/studio/types";
 
@@ -25,39 +25,38 @@ export function Sheet({
   children: ReactNode;
   wide?: boolean;
 }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-bg/80" onClick={onClose} role="presentation">
-      <div
-        role="dialog"
-        aria-label={title}
-        className={cx(
-          "safe-bottom shadow-sheet flex max-h-[88dvh] w-full flex-col rounded-t-lg bg-surface",
-          wide ? "max-w-3xl" : "max-w-lg",
-        )}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex h-14 shrink-0 items-center justify-between gap-3 px-4">
-          <h2 className="text-base font-semibold text-balance">{title}</h2>
-          <button
-            type="button"
-            aria-label="Close"
-            className="press grid h-11 w-11 place-items-center rounded-md bg-surface-2 text-fg"
-            onClick={onClose}
-          >
-            <X className="size-5" />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">{children}</div>
-      </div>
-    </div>
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-bg/80" />
+        <Dialog.Content
+          aria-label={title}
+          aria-describedby={undefined}
+          className={cx(
+            "safe-bottom shadow-sheet fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full flex-col rounded-t-lg bg-surface md:top-1/2 md:bottom-auto md:-translate-y-1/2",
+            wide ? "max-w-3xl" : "max-w-lg",
+          )}
+        >
+          <div className="flex h-14 shrink-0 items-center justify-between gap-3 px-4">
+            <Dialog.Title className="text-base font-semibold text-balance">{title}</Dialog.Title>
+            <button
+              type="button"
+              aria-label="Close"
+              className="press grid h-11 w-11 place-items-center rounded-md bg-surface-2 text-fg"
+              onClick={onClose}
+            >
+              <X className="size-5" />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">{children}</div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -135,7 +134,10 @@ export function Fader({
         if (event.key === "ArrowDown") onChange(Math.max(0, value - 0.04));
       }}
     >
-      <div className="absolute inset-x-2 bottom-0 rounded-sm bg-accent" style={{ height: `${value * 100}%` }} />
+      <div
+        className="absolute inset-x-2 bottom-0 rounded-sm bg-accent"
+        style={{ height: `${value * 100}%` }}
+      />
       <div
         className="absolute inset-x-1 h-1 rounded-full bg-fg"
         style={{ bottom: `calc(${value * 100}% - 2px)` }}

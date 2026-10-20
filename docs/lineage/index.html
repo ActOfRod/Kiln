@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Data Sources &amp; Lineage</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1322; --panel:#131f32; --line:#32435d; --text:#edf3fc; --muted:#b3c4da; --accent:#63dec3; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 system-ui,sans-serif; }
+    header,main { max-width:1600px; margin:auto; padding:24px; }
+    header { padding-bottom:0; }
+    h1 { font-size:clamp(25px,3vw,40px); margin:5px 0; letter-spacing:-.03em; }
+    h2 { font-size:21px; overflow-wrap:anywhere; }
+    h3 { font-size:17px; }
+    p { color:var(--muted); }
+    a { color:var(--accent); }
+    .eyebrow { color:var(--accent); font-weight:700; letter-spacing:.14em; font-size:12px; }
+    .banner { padding:14px 18px; border:1px solid #b99855; background:#302916; border-radius:10px; margin:18px 0; color:#ffe4ae; }
+    .banner.ok { border-color:#348576; background:#102f2d; color:#a5eddb; }
+    .stats { display:flex; flex-wrap:wrap; gap:12px; margin:18px 0; }
+    .stat { min-width:150px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 18px; }
+    .stat strong { display:block; font-size:26px; }
+    .stat span,.small { font-size:12px; color:var(--muted); }
+    section { margin-bottom:20px; border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:20px; }
+    .controls { display:flex; gap:14px; flex-wrap:wrap; align-items:end; }
+    .control { display:flex; flex-direction:column; gap:5px; max-width:100%; }
+    label { display:flex; flex-direction:column; gap:5px; font-size:13px; color:var(--muted); }
+    input,select,button { background:#0b172a; color:var(--text); border:1px solid #526782; border-radius:6px; padding:9px; font:inherit; }
+    input[type=search] { min-width:245px; }
+    select { max-width:100%; }
+    button { cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    :focus-visible { outline:3px solid #8cebd6; outline-offset:3px; }
+    .scroll { overflow:auto; max-width:100%; }
+    #graph { display:block; min-height:260px; }
+    .node { cursor:pointer; }
+    .node:hover rect,.node:focus rect { stroke:#fff; stroke-width:3; }
+    .node text { pointer-events:none; }
+    .edge { fill:none; stroke:#647894; stroke-width:2; cursor:pointer; }
+    .edge.active { stroke:var(--accent); stroke-width:3; }
+    .edge.write { stroke-dasharray:6 5; }
+    .grid { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:20px; }
+    table { width:100%; border-collapse:collapse; text-align:left; font-size:13px; }
+    th,td { padding:11px; border-bottom:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }
+    th { color:#cbdaf0; background:#0e1a2c; }
+    td { min-width:120px; }
+    .link-button { border:0; padding:0; background:transparent; color:var(--accent); text-align:left; overflow-wrap:anywhere; }
+    .selected-row { background:#1a3a42; }
+    pre { white-space:pre-wrap; overflow-wrap:anywhere; background:#08111e; border:1px solid var(--line); border-radius:8px; padding:16px; font:13px/1.6 ui-monospace,monospace; }
+    .meta { display:grid; grid-template-columns:115px minmax(0,1fr); gap:7px 16px; font-size:13px; }
+    .meta dt { color:var(--muted); }
+    .meta dd { margin:0; overflow-wrap:anywhere; }
+    .pill { display:inline-block; border:1px solid #657a94; border-radius:30px; padding:2px 9px; margin:2px; font-size:12px; }
+    ul { padding-left:20px; }
+    li { margin-bottom:6px; overflow-wrap:anywhere; }
+    #sql-info,#review-detail { overflow-wrap:anywhere; }
+    details { margin-top:12px; }
+    summary { cursor:pointer; }
+    .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+    @media(max-width:950px) { .grid { grid-template-columns:1fr; } header,main { padding:14px; } section { padding:14px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">DATA CONTRACT / INVESTIGATION VIEW</div>
+    <h1 id="title">Data Sources &amp; Lineage</h1>
+    <p id="summary"></p>
+    <div id="assurance" class="banner" role="status"></div>
+    <div class="stats" id="stats"></div>
+    <details>
+      <summary>Review, scope, limitations and evidence</summary>
+      <p id="review-detail"></p>
+      <ul id="limitations"></ul>
+      <div class="scroll"><table id="evidence"><caption class="sr-only">Evidence register</caption></table></div>
+    </details>
+  </header>
+  <main>
+    <section aria-labelledby="graph-heading">
+      <h2 id="graph-heading">From source to decision</h2>
+      <p>Select a dataset or an arrow. Solid arrows are transformations or app reads; dashed arrows are app writes.
+        Layer order is a convention, not a requirement that every path visit every layer.</p>
+      <div class="controls">
+        <div class="control"><label for="search">Search datasets</label><input id="search" type="search" placeholder="Table, column or description"></div>
+        <div class="control"><label for="layer">Layer</label><select id="layer"><option value="all">All layers</option></select></div>
+        <div class="control"><label for="dataset">Dataset</label><select id="dataset"></select></div>
+        <div class="control"><label for="zoom">Graph zoom</label><input id="zoom" type="range" min="60" max="160" value="100"></div>
+      </div>
+      <p id="filter-result" class="small" aria-live="polite"></p>
+      <div class="scroll"><svg id="graph" role="group" aria-label="Interactive table lineage graph"></svg></div>
+    </section>
+    <div class="grid">
+      <section aria-labelledby="detail-heading">
+        <h2 id="detail-heading">Dataset details</h2>
+        <dl class="meta" id="metadata"></dl>
+        <div class="scroll"><table id="columns"><caption class="sr-only">Column inventory and expressions</caption></table></div>
+      </section>
+      <section aria-labelledby="trace-heading">
+        <h2 id="trace-heading">Column investigation</h2>
+        <div class="controls">
+          <div class="control"><label for="column">Column</label><select id="column"></select></div>
+          <div class="control"><label for="direction">Direction</label><select id="direction"><option value="upstream">Upstream sources</option><option value="downstream">Downstream impact</option></select></div>
+        </div>
+        <p id="trace-status" aria-live="polite"></p>
+        <div class="scroll"><table id="trace"><caption class="sr-only">Column dependencies</caption></table></div>
+        <h3>Origins and conditions</h3>
+        <ul id="origins"></ul>
+      </section>
+    </div>
+    <section aria-labelledby="sql-heading">
+      <h2 id="sql-heading">Transformation SQL</h2>
+      <p>Saved for investigation only. This page never executes SQL. "Equivalent" means an explanation of a non-SQL implementation, not runnable production code.</p>
+      <div class="controls">
+        <div class="control"><label for="transformation">Transformation</label><select id="transformation"></select></div>
+        <button id="download-sql" type="button">Download saved SQL</button>
+      </div>
+      <p id="sql-info"></p>
+      <pre id="sql-text" tabindex="0"></pre>
+    </section>
+    <section aria-labelledby="matrix-heading">
+      <h2 id="matrix-heading">Platinum column source matrix</h2>
+      <p>Complete recorded transitive sources, including row/control roles. A generated value has an explained origin instead of a fabricated source. A rowset (*) is not a value-column mapping.</p>
+      <div class="scroll"><table id="matrix"><caption class="sr-only">Platinum column lineage by layer</caption></table></div>
+    </section>
+    <section aria-labelledby="consumer-heading">
+      <h2 id="consumer-heading">Application contract</h2>
+      <p id="integration"></p>
+      <div class="scroll"><table id="consumers"><caption class="sr-only">Application reads and writes</caption></table></div>
+    </section>
+    <section aria-labelledby="gap-heading">
+      <h2 id="gap-heading">Gaps and next actions</h2>
+      <ul id="gaps"></ul>
+      <p class="small">No recorded gaps does not prove no undiscovered dependencies. Verify schemas, SQL, consumers, authorization and business metrics with the application owner.</p>
+    </section>
+  </main>
+  <script type="application/json" id="lineage-data">{"manifest":{"schema_version":1,"application":{"name":"KILN desktop studio","summary":"Browser-local music creation: factory and user notes plus imported audio feed project tracks, the shared Web Audio mixer, and local MP3/WAV downloads. There are no application SQL transformations or warehouse tables.","owner":"ActOfRod/Kiln repository maintainer","consumers":[],"integration":{"path":"src/components/studio/StudioApp.tsx","route":"/ (Data Sources \u0026 Lineage footer dialog)","navigation_label":"Data Sources \u0026 Lineage","access_control":"Public sanitized application structure only. No user project names, tags, audio, credentials or filesystem paths are exposed by the documentation view.","smoke_test":"scripts/studio-browser-check.mjs"}},"assurance":{"mode":"partial","environment":"Browser-local KILN; repository inspection, no warehouse","scope":"Studio project metadata, library object store, track-source object store, Web Audio rendering and file downloads. Platform auth/database helpers are not studio data consumers.","captured_at":"2026-10-19T18:42:31Z","schema_snapshot":"docs/lineage/schema-snapshot.json","limitations":["The table-centric validator has no browser-object-store applicability mode. Its table/Platinum/consumer/snapshot requirements are intentionally not satisfied with fabricated analytical datasets.","No warehouse schema snapshot or transformation SQL exists because the studio has no warehouse or application SQL.","Audio remains local and is not inspected in deployed users' browsers. Browser storage retention is not guaranteed."]},"review":{"reviewed_at":"2026-10-19T19:17:20Z","reviewed_by":"GitHub Copilot","summary":"Final desktop studio review: 20 isolated browser checks cover atomic library metadata, independent audio copies, portable project restoration, audible stereo MP3/WAV, 128-bar rendering, region phase and movement, live graph continuity, actionable missing-source retries and lineage navigation. Data remains browser-local; no warehouse tables, columns or SQL exist. Non-tabular strict-certification gap remains explicit.","source_digest":"87d02dc309914fb44b45d1451d6e87f052e0eeff1d692533e107bc865dae2437"},"evidence":[{"id":"project-contract","kind":"repository_inspection","reference":"Project model and validated versioned portable interchange","path":"src/studio/project-file.ts","observed_at":"2026-10-19T18:42:31Z","summary":"Project metadata, numeric bounds, track/clip/region contracts and embedded sample envelope are validated before import."},{"id":"browser-library","kind":"repository_inspection","reference":"IndexedDB library sound storage and separate track-source storage","path":"src/studio/library.ts","observed_at":"2026-10-19T18:42:31Z","summary":"Library originals and metadata are stored in kiln-library.sounds. Project originals are copied into kiln-samples.buffers under new track IDs."},{"id":"audio-render","kind":"repository_inspection","reference":"Shared live and offline Performer; local LAME MP3 encoding","path":"src/studio/engine.ts","observed_at":"2026-10-19T18:42:31Z","summary":"Project notes and decoded source audio feed per-track effects and the stereo master. Offline rendering uses the same graph and downloads encoded PCM or MP3."},{"id":"browser-regressions","kind":"test","reference":"Isolated browser integration check executed October 19, 2026","path":"scripts/studio-browser-check.mjs","observed_at":"2026-10-19T18:42:31Z","summary":"20 isolated browser checks verified library search/favorites and concurrent metadata updates, project-audio copy and backup roundtrip, reload persistence, decoded non-silent stereo MP3/WAV, 128-bar rendering, region movement and phase-preserving splitting, live graph continuity, missing-source retries and visible lineage navigation."}],"tables":[],"transformations":[],"gaps":[{"id":"non-tabular-applicability","subject":"Table-centric strict lineage assurance","reason":"This application uses browser object stores, not relational or analytical tables. There is no real Platinum dataset, SQL transformation, warehouse schema snapshot or table-access consumer to certify.","owner":"Repository maintainer and lineage-tool maintainer","next_action":"Define an approved non-tabular applicability contract before requesting strict table-lineage certification. Until then retain partial assurance, documented browser flow and executable application tests; do not invent tables or SQL."}],"browser_stores":[{"id":"localStorage/kiln-studio-v1","fields":["project","hintDismissed","metronome"],"writer":"src/studio/store.ts","readers":["StudioApp","ArrangeView","SessionView","MixView","PlayView","TrackInspector","ExportDialog"],"origin":"factory project, user edits, or validated portable project","notes":"No audio bytes, playing state or undo snapshots are persisted here."},{"id":"IndexedDB/kiln-library/sounds","fields":["id","name","tags","favorite","duration","addedAt","data"],"writer":"src/studio/library.ts","readers":["LibraryBrowser"],"origin":"User-selected local audio; duration measured by browser decoder; user-entered name/tags/favorite; system-generated ID/date","notes":"Reusable originals. Deleting a library record does not delete project-source copies."},{"id":"IndexedDB/kiln-samples/buffers","fields":["trackId key","original encoded audio ArrayBuffer"],"writer":"src/studio/samples.ts","readers":["engine.ts sample restore","store.ts portable export"],"origin":"Copied library source, direct file/microphone input, or validated portable audio","notes":"Decoded audio and waveform peaks are transient in-memory derivatives. One source per audio track."}]},"sql":{},"traces":{},"warnings":["Assurance is partial: complete the recorded gaps before release","No tables are recorded; this is not a complete application inventory","No application-serving Platinum dataset is declared; classify the actual serving contract","Application has no recorded data consumers","Gap non-tabular-applicability (Table-centric strict lineage assurance): This application uses browser object stores, not relational or analytical tables. There is no real Platinum dataset, SQL transformation, warehouse schema snapshot or table-access consumer to certify.; owner: Repository maintainer and lineage-tool maintainer","Schema snapshot: missing or empty file docs/lineage/schema-snapshot.json"]}</script>
+  <script>
+    "use strict";
+    const payload = JSON.parse(document.getElementById("lineage-data").textContent);
+    const data = payload.manifest;
+    const tables = new Map(data.tables.map(table => [table.id, table]));
+    const transforms = new Map(data.transformations.map(item => [item.id, item]));
+    const layers = ["external", "bronze", "silver", "gold", "platinum"];
+    const colors = {external:"#91a6bd", bronze:"#dfa177", silver:"#becbe0", gold:"#f2d175", platinum:"#77dfcc", application:"#a4a5ff"};
+    const $ = id => document.getElementById(id);
+    const el = (tag, text, className) => {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    };
+    const option = (value, label) => { const node = el("option", label); node.value = value; return node; };
+    const button = (label, action) => {
+      const node = el("button", label, "link-button");
+      node.type = "button"; node.addEventListener("click", action); return node;
+    };
+    const svgEl = (tag, attributes = {}, text) => {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+      if (text !== undefined) node.textContent = text;
+      return node;
+    };
+    function setTable(node, headers, rows) {
+      const caption = node.querySelector("caption");
+      node.replaceChildren();
+      if (caption) node.append(caption);
+      const head = el("thead"), headRow = el("tr"), body = el("tbody");
+      for (const label of headers) { const th = el("th", label); th.scope = "col"; headRow.append(th); }
+      head.append(headRow);
+      for (const row of rows) {
+        const tr = el("tr");
+        for (const value of row) {
+          const td = el("td");
+          if (value instanceof Node) td.append(value); else td.textContent = String(value);
+          tr.append(td);
+        }
+        body.append(tr);
+      }
+      node.append(head, body);
+    }
+    const listCell = values => {
+      const node = el("div");
+      if (!values.length) node.textContent = "Not on this path";
+      for (const value of values) node.append(el("div", value));
+      return node;
+    };
+    function metadata(entries) {
+      $("metadata").replaceChildren();
+      for (const [label, value] of entries) $("metadata").append(el("dt", label), el("dd", value));
+    }
+    let selectedTable = data.tables.find(table => table.layer === "platinum")?.id ?? data.tables[0]?.id;
+    let selectedColumn = tables.get(selectedTable)?.columns[0]?.name;
+    let visible = new Set(tables.keys());
+    const edges = [];
+    for (const item of data.transformations) {
+      for (const source of item.inputs) edges.push({source, target:item.target, transformation:item.id, label:item.id});
+    }
+    for (const consumer of data.application.consumers) {
+      for (const read of consumer.reads) edges.push({source:read.table, target:"@application", label:consumer.id + " reads"});
+      for (const write of consumer.writes) edges.push({source:"@application", target:write.table, write:true, label:consumer.id + " writes"});
+    }
+    $("title").textContent = data.application.name + " / Data Sources & Lineage";
+    document.title = data.application.name + " - Data Sources & Lineage";
+    $("summary").textContent = data.application.summary;
+    const mode = data.assurance.mode.toUpperCase();
+    $("assurance").textContent = (mode === "EXAMPLE" ? "SYNTHETIC EXAMPLE - no live Databricks discovery. " : mode + " - ")
+      + (payload.warnings.length ? payload.warnings.length + " contract issue(s). " : "Recorded contract is consistent. ")
+      + "This is a dated evidence view, not a live warehouse certification.";
+    if (mode === "VERIFIED" && !payload.warnings.length) $("assurance").classList.add("ok");
+    const platinum = data.tables.filter(table => table.layer === "platinum");
+    const platinumColumns = platinum.flatMap(table => table.columns.map(col => payload.traces[table.id][col.name]));
+    for (const [value, label] of [
+      [tables.size, "datasets"], [data.tables.reduce((n,t) => n + t.columns.length,0), "columns"],
+      [transforms.size, "saved transformations"],
+      [platinumColumns.filter(trace => trace.verified).length + "/" + platinumColumns.length, "Platinum recorded traces"]
+    ]) {
+      const stat = el("div", undefined, "stat"); stat.append(el("strong", value), el("span", label)); $("stats").append(stat);
+    }
+    $("review-detail").textContent = "Environment: " + data.assurance.environment + " | Scope: " + data.assurance.scope
+      + " | Metadata capture: " + data.assurance.captured_at + " | Reviewed: " + data.review.reviewed_at
+      + " by " + data.review.reviewed_by + " | " + data.review.summary + " | Fingerprint: " + data.review.source_digest;
+    for (const item of [...data.assurance.limitations, ...payload.warnings]) $("limitations").append(el("li", item));
+    setTable($("evidence"), ["Evidence", "Kind / date", "Reference", "What was checked"], data.evidence.map(item => [
+      item.id, item.kind + " / " + item.observed_at, item.path ?? item.reference, item.summary
+    ]));
+    for (const layer of layers) $("layer").append(option(layer, layer[0].toUpperCase() + layer.slice(1)));
+    for (const item of data.transformations) $("transformation").append(option(item.id, item.id + " [" + item.sql_kind + "]"));
+
+    function choose(tid, column) {
+      if (!tables.has(tid)) return;
+      selectedTable = tid;
+      selectedColumn = column && column !== "*" ? column : tables.get(tid).columns[0]?.name;
+      if (!visible.has(tid)) { $("search").value = ""; $("layer").value = "all"; filter(); }
+      $("dataset").value = tid;
+      updateDetails();
+    }
+    function filter() {
+      const search = $("search").value.trim().toLowerCase(), layer = $("layer").value;
+      const matching = data.tables.filter(table =>
+        (layer === "all" || layer === table.layer) &&
+        (table.id + " " + table.description + " " + table.columns.map(c => c.name).join(" ")).toLowerCase().includes(search)
+      );
+      visible = new Set(matching.map(table => table.id));
+      $("dataset").replaceChildren(...matching.map(table => option(table.id, table.id)));
+      $("filter-result").textContent = matching.length
+        ? matching.length + " matching dataset(s). Nonmatching graph nodes are dimmed; current investigation is preserved."
+        : "No datasets match. Clear the search or choose another layer.";
+      $("dataset").disabled = !matching.length;
+      if (visible.has(selectedTable)) $("dataset").value = selectedTable;
+      else if (matching.length) $("dataset").selectedIndex = -1;
+      drawGraph();
+    }
+    function activeNodes() {
+      const active = new Set([selectedTable]);
+      if ($("direction").value === "upstream") {
+        for (const node of payload.traces[selectedTable]?.[selectedColumn]?.nodes ?? []) active.add(node.table);
+      } else {
+        for (const table of data.tables) for (const col of table.columns) {
+          if (payload.traces[table.id][col.name].nodes.some(node => node.table === selectedTable &&
+              (node.column === selectedColumn || node.column === "*"))) active.add(table.id);
+        }
+      }
+      return active;
+    }
+    function drawGraph() {
+      const graph = $("graph"), width = 1510, laneWidth = 250;
+      const height = Math.max(260, ...layers.map(layer => data.tables.filter(t => t.layer === layer).length * 94 + 90));
+      graph.replaceChildren(); graph.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      graph.style.width = width * Number($("zoom").value) / 100 + "px";
+      const defs = svgEl("defs"), marker = svgEl("marker", {id:"arrow", viewBox:"0 0 10 10", refX:9, refY:5, markerWidth:6, markerHeight:6, orient:"auto-start-reverse"});
+      marker.append(svgEl("path", {d:"M 0 0 L 10 5 L 0 10 z", fill:"#8bafac"})); defs.append(marker); graph.append(defs);
+      const positions = new Map(), allLayers = [...layers, "application"], active = activeNodes();
+      allLayers.forEach((layer, index) => {
+        graph.append(svgEl("text", {x:index*laneWidth+16, y:24, fill:colors[layer], "font-size":13, "font-weight":700}, layer.toUpperCase()));
+        const members = layer === "application" ? [{id:"@application", description:data.application.name}]
+          : data.tables.filter(table => table.layer === layer);
+        members.forEach((table, row) => positions.set(table.id, {x:index*laneWidth+12, y:50+row*94, layer, table}));
+      });
+      for (const edge of edges) {
+        const from = positions.get(edge.source), to = positions.get(edge.target);
+        if (!from || !to) continue;
+        const forward = to.x > from.x;
+        const x1 = from.x + (forward ? 215 : 0), x2 = to.x + (forward ? 0 : 215);
+        const y1 = from.y+30, y2 = to.y+30;
+        const bend = from.x === to.x ? 70 : Math.max(35, Math.abs(x2-x1)*.5);
+        const curve = svgEl("path", {
+          d:`M ${x1} ${y1} C ${x1+(forward?bend:-bend)} ${y1}, ${x2+(forward?-bend:bend)} ${y2}, ${x2} ${y2}`,
+          class:"edge" + (edge.write ? " write" : "") + (active.has(edge.source) && active.has(edge.target) ? " active" : ""),
+          "marker-end":"url(#arrow)", tabindex:0, role:"button", "aria-label":edge.label
+        });
+        curve.append(svgEl("title", {}, edge.label + ": " + edge.source + " -> " + edge.target));
+        const action = () => {
+          choose(tables.has(edge.target) ? edge.target : edge.source);
+          if (edge.transformation) { $("transformation").value = edge.transformation; updateSQL(); }
+        };
+        curve.addEventListener("click", action);
+        curve.addEventListener("keydown", event => { if (["Enter"," "].includes(event.key)) { event.preventDefault(); action(); } });
+        graph.append(curve);
+      }
+      for (const [id, pos] of positions) {
+        const application = id === "@application", chosen = id === selectedTable;
+        const group = svgEl("g", {class:"node", tabindex:0, role:"button", "aria-label":application ? data.application.name : id, opacity:application || visible.has(id) ? 1 : .28});
+        group.append(svgEl("rect", {x:pos.x,y:pos.y,width:215,height:66,rx:8,fill:active.has(id)?"#204047":"#192a41",stroke:chosen?"#ffffff":colors[pos.layer],"stroke-width":chosen?3:1.5}));
+        const label = application ? data.application.name : id;
+        const parts = label.length > 28 ? [label.slice(0,28), label.slice(28,55) + (label.length>55?"...":"")] : [label];
+        parts.forEach((part,i) => group.append(svgEl("text", {x:pos.x+10,y:pos.y+24+i*18,fill:"#edf3fc","font-size":12}, part)));
+        group.append(svgEl("title", {}, label + " - " + pos.table.description));
+        const action = () => application ? $("consumer-heading").scrollIntoView({behavior:"smooth"}) : choose(id);
+        group.addEventListener("click", action);
+        group.addEventListener("keydown", event => { if (["Enter"," "].includes(event.key)) { event.preventDefault(); action(); } });
+        graph.append(group);
+      }
+    }
+    function updateDetails() {
+      const table = tables.get(selectedTable);
+      if (!table) return;
+      $("detail-heading").textContent = table.id;
+      metadata([
+        ["Layer / kind", table.layer + " / " + table.kind], ["Meaning", table.description],
+        ["Owner", table.owner], ["Grain", table.grain], ["Refresh", table.refresh],
+        ["Primary key", table.primary_key.join(", ") || "None declared"],
+        ...(table.boundary ? [["Boundary", table.boundary.system + ": " + table.boundary.reason]] : [])
+      ]);
+      $("column").replaceChildren(...table.columns.map(col => option(col.name, col.name)));
+      $("column").value = selectedColumn;
+      setTable($("columns"), ["Column", "Type / meaning", "Writers / expressions"], table.columns.map(col => {
+        const expressions = el("div");
+        for (const mapping of col.mappings) {
+          expressions.append(el("div", "[" + mapping.kind + " / " + mapping.status + "] " + mapping.expression));
+          if (mapping.transformation && transforms.has(mapping.transformation)) expressions.append(button("SQL: " + mapping.transformation, () => {
+            $("transformation").value = mapping.transformation; updateSQL(); $("sql-heading").scrollIntoView({behavior:"smooth"});
+          }));
+          expressions.append(el("div", "Evidence: " + mapping.evidence.join(", "), "small"));
+        }
+        return [button(col.name, () => choose(table.id,col.name)), col.data_type + " | nullable=" + col.nullable + " | " + col.description + " | " + col.classification, expressions];
+      }));
+      Array.from($("columns").tBodies[0].rows).forEach((row,index) => row.classList.toggle("selected-row", table.columns[index].name === selectedColumn));
+      const firstWriter = table.columns.find(col => col.name === selectedColumn)?.mappings.find(mapping => transforms.has(mapping.transformation));
+      if (firstWriter) $("transformation").value = firstWriter.transformation;
+      updateTrace(); updateSQL(); drawGraph();
+    }
+    function updateTrace() {
+      const trace = payload.traces[selectedTable]?.[selectedColumn];
+      if (!trace) return;
+      const downstream = $("direction").value === "downstream";
+      $("trace-status").textContent = (trace.verified ? "All recorded mappings on this trace are verified. " : "This trace contains unresolved mappings. ")
+        + (downstream ? "Showing affected recorded columns." : "Value sources and row/control influences are labeled separately.");
+      let nodes = trace.nodes;
+      if (downstream) {
+        nodes = [];
+        for (const table of data.tables) for (const column of table.columns) {
+          const roles = new Set(payload.traces[table.id][column.name].nodes
+            .filter(node => node.table === selectedTable && (node.column === selectedColumn || node.column === "*")).map(node => node.role));
+          if (roles.size) nodes.push({table:table.id,column:column.name,role:[...roles].join(", ")});
+        }
+      }
+      setTable($("trace"), ["Dataset / column", "Layer", "Role"], nodes.map(node => [
+        button(node.table + "." + node.column, () => choose(node.table,node.column)),
+        tables.get(node.table)?.layer ?? "unresolved", node.role
+      ]));
+      if (!nodes.length) {
+        const body = $("trace").tBodies[0], row = body.insertRow(), cell = row.insertCell();
+        cell.colSpan = 3; cell.textContent = downstream ? "No recorded downstream columns." : "No upstream column sources; inspect the explicit origin.";
+      }
+      $("origins").replaceChildren(...trace.origins.map(origin => el("li",origin)));
+      const column = tables.get(selectedTable)?.columns.find(col => col.name === selectedColumn);
+      for (const mapping of column?.mappings ?? []) {
+        const transform = transforms.get(mapping.transformation);
+        if (transform) $("origins").append(el("li", transform.id + ": " + transform.write_behavior + " WHY: " + transform.rationale));
+      }
+    }
+    function updateSQL() {
+      const id = $("transformation").value, item = payload.sql[id], transform = transforms.get(id);
+      $("download-sql").disabled = !item || item.sha256 === "UNAVAILABLE";
+      if (!item || !transform) {
+        $("sql-info").textContent = "No saved transformations are recorded.";
+        $("sql-text").textContent = ""; return;
+      }
+      $("sql-info").textContent = item.path + " | " + item.kind.toUpperCase() + " | " + transform.status
+        + " | Target: " + transform.target + " | Implementation: " + transform.implementation_path
+        + " | SHA-256: " + item.sha256 + " | WHY: " + transform.rationale
+        + " | Write behavior: " + transform.write_behavior;
+      $("sql-text").textContent = item.text;
+    }
+    $("download-sql").addEventListener("click", () => {
+      const item = payload.sql[$("transformation").value];
+      if (!item || item.sha256 === "UNAVAILABLE") return;
+      const url = URL.createObjectURL(new Blob([item.text], {type:"application/sql;charset=utf-8"}));
+      const anchor = el("a"); anchor.href = url; anchor.download = item.path.split("/").pop();
+      document.body.append(anchor); anchor.click(); anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    setTable($("matrix"), ["Platinum column", "Bronze", "Silver", "Gold", "External / Platinum", "Origins / status"],
+      platinum.flatMap(table => table.columns.map(column => {
+        const trace = payload.traces[table.id][column.name];
+        return [button(table.id + "." + column.name, () => { choose(table.id,column.name); $("trace-heading").scrollIntoView({behavior:"smooth"}); }),
+          ...[["bronze"],["silver"],["gold"],["external","platinum"]].map(group =>
+            listCell(trace.nodes.filter(node => group.includes(tables.get(node.table)?.layer))
+              .map(node => node.table + "." + node.column + " [" + node.role + "]"))),
+          listCell([...trace.origins, trace.verified ? "Verified recorded trace" : "UNVERIFIED"])];
+      }))
+    );
+    const integration = data.application.integration;
+    $("integration").textContent = integration.navigation_label + " | Route: " + integration.route
+      + " | Implementation: " + integration.path + " | Smoke test: " + integration.smoke_test + " | Access: " + integration.access_control;
+    setTable($("consumers"), ["Consumer", "Purpose / implementation", "Reads", "Writes"], data.application.consumers.map(consumer => [
+      consumer.id, consumer.description + " | " + consumer.path,
+      ...["reads","writes"].map(direction => listCell(consumer[direction].map(access => access.table + " (" + access.columns.join(", ") + ")")))
+    ]));
+    for (const gap of data.gaps) $("gaps").append(el("li", gap.id + ": " + gap.subject + " - " + gap.reason + " | Owner: " + gap.owner + " | Next: " + gap.next_action));
+    if (!data.gaps.length) $("gaps").append(el("li","No recorded gaps."));
+    $("search").addEventListener("input", filter);
+    $("layer").addEventListener("change", filter);
+    $("dataset").addEventListener("change", () => choose($("dataset").value));
+    $("column").addEventListener("change", () => choose(selectedTable,$("column").value));
+    $("direction").addEventListener("change", () => { updateTrace(); drawGraph(); });
+    $("zoom").addEventListener("input", drawGraph);
+    $("transformation").addEventListener("change", updateSQL);
+    filter(); updateDetails();
+  </script>
+</body>
+</html>
