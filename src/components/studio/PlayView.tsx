@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { useStudio } from "@/studio/store";
+import { engine } from "@/studio/engine";
+import { instrumentOf } from "@/studio/instruments";
+import { InstrumentPicker } from "./InstrumentPicker";
 import { DRUMS, noteName } from "@/studio/theory";
 import { CLIP_BG, cx } from "./ui";
 
@@ -21,15 +24,29 @@ export function PlayView() {
   const recording = useStudio((s) => s.recording);
   const sceneName = useStudio((s) => s.project.scenes[s.selectedScene]?.name ?? "Scene");
   const track = tracks.find((t) => t.id === trackId) ?? tracks[0];
-  const [octave, setOctave] = useState(track?.kind === "bass" ? 2 : track?.kind === "lead" ? 4 : 3);
+  const [octave, setOctave] = useState(
+    track?.kind === "bass" ? 2 : track?.kind === "lead" || track?.kind === "keys" ? 4 : 3,
+  );
   const [pressed, setPressed] = useState<number[]>([]);
 
   useEffect(() => {
     if (!track) return;
     if (track.kind === "bass") setOctave(2);
     else if (track.kind === "lead") setOctave(4);
+    else if (track.kind === "keys") setOctave(4);
     else if (track.kind !== "drums") setOctave(3);
   }, [track?.id, track?.kind]);
+
+  const instrument = track ? instrumentOf(track.kind, track.device) : null;
+  const warmId = instrument?.engine === "rendered" ? track?.id : undefined;
+  useEffect(() => {
+    // Pre-render the keys on screen (and an octave either side) for instant response.
+    if (warmId)
+      engine.warmKeys(
+        warmId,
+        Array.from({ length: 36 }, (_, i) => (octave - 1) * 12 + i),
+      );
+  }, [warmId, instrument?.id, octave]);
 
   useEffect(() => {
     const map: Record<string, number> = {};
@@ -104,6 +121,7 @@ export function PlayView() {
           </button>
         ))}
       </div>
+      {track.kind !== "sample" && <InstrumentPicker track={track} />}
       <p className="text-sm text-pretty text-muted">
         {recording
           ? `Recording into ${sceneName} on ${track.name}. Turn record off when the take feels right.`

@@ -78,7 +78,8 @@ confirm `npx -y npm@10 ci --dry-run` succeeds before merging.
 against the local BroadcastChannel backend (used automatically when no
 publishable key is configured in dev). `node scripts/clip-browser-check.mjs`
 covers Clip View, drag-and-drop, fades, rendering of clip settings and portable
-per-clip audio.
+per-clip audio. `node scripts/instrument-browser-check.mjs` swaps every
+instrument and drum kit in the UI and verifies each renders audibly in exports.
 
 ## Failure diagnosis
 

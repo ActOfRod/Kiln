@@ -114,6 +114,13 @@ export const PATTERNS: Pattern[] = [
   { id: "lead-hook", name: "Hook", kind: "lead", length: 4, color: "sage", notes: hookLead },
 ];
 
+/** The original analog-synth voice for a track kind (used when switching back to it). */
+export function analogVoice(kind: TrackKind): Pick<Device, "waveform" | "attack" | "decay" | "cutoff" | "resonance"> {
+  if (kind === "keys") return { waveform: "triangle", attack: 0.012, decay: 0.5, cutoff: 2200, resonance: 1.1 };
+  const { waveform, attack, decay, cutoff, resonance } = defaultDevice(kind);
+  return { waveform, attack, decay, cutoff, resonance };
+}
+
 export function defaultDevice(kind: TrackKind): Device {
   const base: Device = {
     waveform: "sawtooth",
@@ -136,7 +143,8 @@ export function defaultDevice(kind: TrackKind): Device {
     return { ...base, waveform: "sawtooth", attack: 0.005, decay: 0.22, cutoff: 420, resonance: 6, drive: 0.22, delayMix: 0.04, reverb: 0.04 };
   }
   if (kind === "keys") {
-    return { ...base, waveform: "triangle", attack: 0.012, decay: 0.5, cutoff: 2200, resonance: 1.1, drive: 0.05, delayMix: 0.16, reverb: 0.26 };
+    // New keys tracks start as a grand piano; the analog keys sound remains one click away.
+    return { ...base, waveform: "triangle", attack: 0.003, decay: 0.28, cutoff: 9000, resonance: 0.7, drive: 0.02, delayMix: 0.06, reverb: 0.22, instrument: "grand-piano" };
   }
   if (kind === "lead") {
     return { ...base, waveform: "square", attack: 0.008, decay: 0.28, cutoff: 1700, resonance: 2.2, drive: 0.1, delayMix: 0.22, delayDivision: 0.5, reverb: 0.18 };

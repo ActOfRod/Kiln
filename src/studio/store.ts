@@ -13,6 +13,7 @@ import type {
   TrackKind,
 } from "./types";
 import {
+  analogVoice,
   CLIP_COLORS,
   createDemoProject,
   createEmptyProject,
@@ -26,6 +27,7 @@ import { assetOf, clipWindow, naturalBeats, playbackRate, requiredAssets } from 
 import { downloadBlob, projectFileSchema, projectSchema } from "./project-file";
 import { idbGet, idbPutMany } from "./samples";
 import type { ExportOptions } from "./export";
+import { INSTRUMENTS, type InstrumentId } from "./instruments";
 
 export interface StudioState {
   project: Project;
@@ -93,6 +95,8 @@ export interface StudioState {
   toggleMute: (trackId: string) => void;
   toggleSolo: (trackId: string) => void;
   updateDevice: (trackId: string, patch: Partial<Device>) => void;
+  /** Swap a track's instrument, keeping its notes, mixer and effects. */
+  setInstrument: (trackId: string, instrument: InstrumentId) => void;
   renameProject: (name: string) => void;
   renameScene: (index: number, name: string) => void;
   renameTrack: (trackId: string, name: string) => void;
@@ -505,6 +509,27 @@ export const useStudio = create<StudioState>()(
 
       toggleSolo: (trackId) =>
         set((s) => ({ project: mapTracks(s.project, trackId, (t) => ({ ...t, solo: !t.solo })) })),
+
+      setInstrument: (trackId, instrument) =>
+        set((s) => {
+          const def = INSTRUMENTS.find((item) => item.id === instrument);
+          const track = s.project.tracks.find((t) => t.id === trackId);
+          if (!def || !track || track.kind === "sample") return s;
+          if ((def.engine === "drums") !== (track.kind === "drums"))
+            return { audioError: `${def.name} can't play on a ${track.kind} track.` };
+          const preset =
+            def.engine === "analog"
+              ? analogVoice(track.kind)
+              : def.engine === "drums"
+                ? {}
+                : def.preset;
+          return {
+            project: mapTracks(s.project, trackId, (t) => ({
+              ...t,
+              device: { ...t.device, ...preset, instrument },
+            })),
+          };
+        }),
 
       updateDevice: (trackId, patch) =>
         set((s) => ({

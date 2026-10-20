@@ -1458,3 +1458,82 @@ button:disabled {
   opacity: 0.85;
   z-index: 4;
 }
+
+/* Instrument picker */
+.instrument-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+.instrument-picker.compact {
+  margin-bottom: 12px;
+}
+.instrument-family {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.instrument-family .section-label {
+  margin: 0;
+}
+.instrument-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.instrument-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 210px;
+  padding: 9px 26px 9px 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  text-align: left;
+  transition:
+    border-color 120ms,
+    background 120ms;
+}
+.instrument-card:hover {
+  border-color: #5a4c3e;
+  color: var(--color-fg);
+}
+.instrument-card.active {
+  border-color: var(--color-accent);
+  background: #2c2016;
+  color: var(--color-fg);
+}
+.instrument-card > svg:first-child {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--color-accent);
+}
+.instrument-card span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.instrument-card strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.instrument-card small {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--color-faint);
+}
+.instrument-check {
+  position: absolute;
+  right: 8px;
+  top: 9px;
+  color: var(--color-accent);
+}
+.instrument-picker.compact .instrument-card {
+  width: auto;
+  padding-right: 28px;
+}

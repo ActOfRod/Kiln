@@ -81,10 +81,10 @@
     ]
   },
   "review": {
-    "reviewed_at": "2026-10-20T13:36:55Z",
+    "reviewed_at": "2026-10-20T14:20:48Z",
     "reviewed_by": "GitHub Copilot",
-    "summary": "Re-reviewed after enabling the Supabase publishable key: live activity moved from presence to throttled broadcasts after Supabase closed channels for exceeding its presence rate limit; edits are coalesced and channels auto-reconnect. Verified end to end with a production build, real Supabase and three isolated browsers (14 checks); test rooms deleted. Tables, columns and writer functions unchanged; remaining partial gap is the generator's missing Postgres snapshot origin.",
-    "source_digest": "0b2098a321053df58de01e2eabb15143dff5ef48dc51d4a578ad302828733220"
+    "summary": "Instrument swapping: Device gains an optional, schema-validated instrument ID stored inside the existing song JSON (localStorage and kiln_rooms.project). No table, column, function or transformation changes; Supabase lineage unchanged. Verified with 30 unit tests (tuning/decay/catalog), the 21-check instrument browser test, and the studio, clip and collaboration regressions.",
+    "source_digest": "1641ab33c8eafa89ec06bfdcc9837bdeb576868cd7aba314ed0b49a471e9dfa5"
   },
   "evidence": [
     {
@@ -691,7 +691,7 @@
           "name": "project",
           "data_type": "jsonb",
           "nullable": false,
-          "description": "Latest merged song snapshot (tracks, regions, clips, mixer; no audio bytes). Max 5 MB.",
+          "description": "Latest merged song snapshot (tracks with their instrument choice, regions, clips, mixer; no audio bytes). Max 5 MB.",
           "classification": "user content",
           "mappings": [
             {
@@ -1310,7 +1310,7 @@
         "ExportDialog"
       ],
       "origin": "factory project, user edits, or validated portable project",
-      "notes": "No audio bytes, playing state or undo snapshots are persisted here."
+      "notes": "No audio bytes, playing state or undo snapshots are persisted here. Track devices carry an optional instrument ID; absent means the original analog synth / electronic kit."
     },
     {
       "id": "IndexedDB/kiln-library/sounds",

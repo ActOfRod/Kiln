@@ -5,6 +5,8 @@ import { useStudio } from "@/studio/store";
 import { DRUMS, noteName } from "@/studio/theory";
 import type { Track, TrackKind, Wave } from "@/studio/types";
 import { Field, Sheet, cx } from "./ui";
+import { InstrumentPicker } from "./InstrumentPicker";
+import { instrumentOf } from "@/studio/instruments";
 
 const MIN_F = Math.log(80);
 const MAX_F = Math.log(14000);
@@ -23,6 +25,9 @@ export function DeviceSheet({ trackId, onClose }: { trackId: string; onClose: ()
   const removeTrack = useStudio((s) => s.removeTrack);
   const rev = useStudio((s) => s.sampleRev);
   if (!track) return null;
+  const instrument = instrumentOf(track.kind, track.device);
+  const analog = instrument.engine === "analog";
+  const tonal = track.kind !== "drums" && track.kind !== "sample";
   return (
     <Sheet title={`${track.name} sound`} onClose={onClose}>
       <label className="mb-3 flex flex-col gap-1 text-sm">
@@ -34,8 +39,11 @@ export function DeviceSheet({ trackId, onClose }: { trackId: string; onClose: ()
           onChange={(event) => renameTrack(track.id, event.target.value)}
         />
       </label>
-      <p className="mb-2 text-xs uppercase tracking-wide text-muted">{labelKind(track.kind)}</p>
-      {track.kind !== "drums" && track.kind !== "sample" && (
+      {track.kind !== "sample" && <InstrumentPicker track={track} compact />}
+      <p className="mb-2 text-xs uppercase tracking-wide text-muted">
+        {track.kind === "sample" ? labelKind(track.kind) : `${instrument.name} controls`}
+      </p>
+      {tonal && analog && (
         <div className="mb-3 grid grid-cols-4 gap-1">
           {WAVES.map((wave) => (
             <button
@@ -52,21 +60,23 @@ export function DeviceSheet({ trackId, onClose }: { trackId: string; onClose: ()
           ))}
         </div>
       )}
-      {track.kind !== "drums" && track.kind !== "sample" && (
+      {tonal && (
         <>
+          {(analog || instrument.engine === "sustained") && (
+            <Field
+              label="Attack"
+              min={0.003}
+              max={0.8}
+              step={0.001}
+              value={track.device.attack}
+              display={`${Math.round(track.device.attack * 1000)} ms`}
+              onChange={(attack) => updateDevice(track.id, { attack })}
+            />
+          )}
           <Field
-            label="Attack"
-            min={0.003}
-            max={0.8}
-            step={0.001}
-            value={track.device.attack}
-            display={`${Math.round(track.device.attack * 1000)} ms`}
-            onChange={(attack) => updateDevice(track.id, { attack })}
-          />
-          <Field
-            label="Decay"
-            min={0.05}
-            max={1.4}
+            label={analog ? "Decay" : "Release"}
+            min={analog ? 0.05 : 0.02}
+            max={analog ? 1.4 : 3}
             step={0.01}
             value={track.device.decay}
             display={`${track.device.decay.toFixed(2)} s`}
@@ -75,7 +85,7 @@ export function DeviceSheet({ trackId, onClose }: { trackId: string; onClose: ()
         </>
       )}
       <Field
-        label="Cutoff"
+        label={tonal && !analog ? "Tone" : "Cutoff"}
         min={0}
         max={1}
         step={0.001}
@@ -87,15 +97,17 @@ export function DeviceSheet({ trackId, onClose }: { trackId: string; onClose: ()
           updateDevice(track.id, { cutoff: Math.exp(MIN_F + pos * (MAX_F - MIN_F)) })
         }
       />
-      <Field
-        label="Resonance"
-        min={0.4}
-        max={14}
-        step={0.1}
-        value={track.device.resonance}
-        display={track.device.resonance.toFixed(1)}
-        onChange={(resonance) => updateDevice(track.id, { resonance })}
-      />
+      {(!tonal || analog || instrument.id === "warm-pad") && (
+        <Field
+          label="Resonance"
+          min={0.4}
+          max={14}
+          step={0.1}
+          value={track.device.resonance}
+          display={track.device.resonance.toFixed(1)}
+          onChange={(resonance) => updateDevice(track.id, { resonance })}
+        />
+      )}
       <Field
         label="Drive"
         min={0}
