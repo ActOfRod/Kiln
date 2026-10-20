@@ -10,7 +10,9 @@ engine. Preserving that contract avoids two independently evolving DAWs and
 retains browser-local v1 projects.
 
 `StudioApp` owns shell / dialogs. `LibraryBrowser` owns library UI, metadata and
-audition. `ArrangeView` owns region selection and piano-roll UI.
+audition. `ArrangeView` owns region selection, drag-and-drop and presence
+overlays; `ClipView` owns the audio Clip View and MIDI clip tools.
+`Collaboration` owns the Share / Live session UI; `src/collab` owns sync.
 `TrackInspector` shares the existing device parameters. `store.ts` is the
 authoritative project mutation / undo layer. `regions.ts` implements splitting
 and bounds; `project-file.ts` validates interchange with Zod.
@@ -21,6 +23,7 @@ and bounds; `project-file.ts` validates interchange with Zod.
 factory.ts patterns / manual notes --> Project.tracks[].clips or arrangement
 local audio files --> kiln-library.sounds (independent original audio + metadata)
 library add / microphone --> kiln-samples.buffers[trackId] --> decoded sampleBank
+library drag / file drop --> kiln-samples.buffers[assetId] --> per-clip source
 Project + launch state --> engine Performer --> per-track voices / sample source
   --> drive --> filter --> dry + delay + reverb --> volume --> pan
   --> master gain --> compressor --> speakers or OfflineAudioContext
@@ -29,10 +32,16 @@ Project edits --> Zustand persist --> localStorage[kiln-studio-v1]
 Project + original track audio --> versioned portable .kiln download
 ```
 
-These are browser object stores and application objects, **not** relational
-tables or Bronze / Silver / Gold / Platinum warehouse datasets. The existing
-auth / database helpers are platform scaffolding, not studio consumers. No
-application SQL or remote business tables are used.
+```text
+Live session (opt-in): project edits --> entity ops --> Supabase Realtime --> peers
+  snapshot + clocks --> kiln_save_room --> supabase.public.kiln_rooms
+  clip audio --> kiln_put_asset_chunk --> supabase.public.kiln_room_assets
+```
+
+Browser stores remain the only storage until someone presses Share. Shared
+rooms are the application's only database tables (see
+[collaboration](collaboration.md) and [lineage](lineage/README.md)). The
+template auth / PGLite helpers are platform scaffolding, not studio consumers.
 
 ## Contracts
 
@@ -43,18 +52,24 @@ Synth note duration converts beats to seconds at scheduling time. Library
 IDs, not names, identify tracks, notes, clips, regions and library sounds.
 Duplicate names are valid; portable imports reject duplicate track IDs.
 
-An audio track owns one original source. Regions refer to it through their
-track ID, not to library records. Deleting a library record cannot break
-project playback. Replacing a track's source deliberately affects all its
-regions. MIDI regions own their note arrays; a split keeps a pattern-phase
+Audio regions reference an immutable asset (`assetId`) or, for legacy regions
+and session clips, the track's own source (`track.id`). Many sources can share
+a track. Deleting a library record cannot break project playback. Replacing a
+track's legacy source still affects its legacy regions. An audio region plays
+one continuous voice: source window = clip start / end (falling back to the
+track trim), loop or one-shot, rate = 2^(semitones/12) × (bpm / sourceBpm when
+warped), optional reverse buffer, clip gain in dB and linear fades at the
+region edges. Splits keep the full elapsed offset for audio. MIDI regions own their note arrays; a split keeps a pattern-phase
 offset so the right half does not restart from the first beat.
 Region movement clamps position without truncating its length. Reordering or
 adding tracks preserves existing live audio graphs. Library metadata changes
 are field patches applied in one read/write transaction, so simultaneous name,
 tag and favorite edits cannot overwrite one another's independent fields.
 
-Regions are additive if placed on top of each other; there is no take-priority
-system. MIDI region length controls looping / clipping, while pattern length
+Dragging a region onto another compatible track (audio ↔ audio, MIDI ↔ any MIDI)
+moves it; a moved legacy audio region freezes its source and trim into explicit
+clip fields so it sounds the same. Regions are additive if placed on top of each
+other; there is no take-priority system. MIDI region length controls looping / clipping, while pattern length
 controls note repetition. There is no audio warping: a tempo change affects
 region boundaries and repetition, not source playback rate.
 
@@ -71,9 +86,14 @@ and reverb impulses mean two renders need not be bit-identical.
 
 ## Access, errors and safe extension
 
-Everything musical is local. Microphone access is user-initiated. No accounts
-or shared world-writable database are added. Public lineage information is
-sanitized application structure, not user audio, metadata or local file paths.
+Everything musical is local until a user starts or joins a live session.
+Microphone access is user-initiated. There are no accounts: a room is reachable
+only with its link secret, enforced inside `kiln_*` Postgres functions; tables
+have RLS with no policies or grants. The browser holds only the public
+publishable key — never the database password or a service-role key. Remote
+messages and snapshots are validated (`isOp`, `projectSchema`) before they touch
+the song; invalid input triggers a reload of the saved room. Public lineage
+information is sanitized structure, not user audio, songs or secrets.
 
 Storage, codec, microphone and export failures have visible messages. Import
 validates project structure and decodes embedded audio before switching the

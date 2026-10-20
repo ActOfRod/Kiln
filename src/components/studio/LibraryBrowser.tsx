@@ -211,7 +211,16 @@ export function LibraryBrowser() {
         ))}
         {filtered.length > 0 && <p className="section-label">Your samples · audio</p>}
         {filtered.map((sound) => (
-          <div key={sound.id} className={cx("library-item", selected === sound.id && "selected")}>
+          <div
+            key={sound.id}
+            className={cx("library-item", selected === sound.id && "selected")}
+            draggable
+            title="Drag onto the arrangement to place this sound"
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "copy";
+              event.dataTransfer.setData("application/kiln-sound", sound.id);
+            }}
+          >
             <button
               className="icon-button"
               disabled={busy}

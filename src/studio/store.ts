@@ -21,7 +21,8 @@ import {
 } from "./factory";
 import { engine, type Snapshot } from "./engine";
 import { clamp, nextBar, quantize, uid } from "./theory";
-import { fitRegion, splitRegion } from "./regions";
+import { fitRegion, splitRegion, transformMidi, type MidiTransform } from "./regions";
+import { assetOf, clipWindow, naturalBeats, playbackRate, requiredAssets } from "./audio-clip";
 import { downloadBlob, projectFileSchema, projectSchema } from "./project-file";
 import { idbGet, idbPutMany } from "./samples";
 import type { ExportOptions } from "./export";
@@ -52,11 +53,22 @@ export interface StudioState {
   duplicateTrack: (trackId: string) => Promise<void>;
   reorderTrack: (trackId: string, direction: -1 | 1) => void;
   addRegion: (trackId: string, patternId: string, start: number) => void;
-  updateRegion: (
-    trackId: string,
+  updateRegion: (trackId: string, clipId: string, patch: RegionPatch) => void;
+  moveRegion: (
+    fromTrackId: string,
     clipId: string,
-    patch: Partial<Pick<ArrangeClip, "name" | "length" | "notes" | "patternLength">>,
-  ) => void;
+    toTrackId: string,
+    start: number,
+    copy?: boolean,
+  ) => string | null;
+  placeAudio: (
+    trackId: string | null,
+    data: ArrayBuffer,
+    name: string,
+    start: number,
+  ) => Promise<{ trackId: string; clipId: string }>;
+  transformRegion: (trackId: string, clipId: string, transform: MidiTransform) => void;
+  fitAudioRegion: (trackId: string, clipId: string) => void;
   splitArrangeClip: (trackId: string, clipId: string, beat: number) => void;
   duplicateArrangeClip: (trackId: string, clipId: string) => void;
   saveProject: () => Promise<void>;
@@ -103,6 +115,13 @@ export interface StudioState {
   bumpSamples: () => void;
   ensureClip: (trackId: string, scene: number, name: string) => void;
   exportSong: (options?: ExportOptions) => Promise<void>;
+}
+
+export type RegionPatch = Partial<Omit<ArrangeClip, "id" | "start" | "offset">>;
+
+/** Tracks that can host a region from `from`: audio only on audio, MIDI on any MIDI track. */
+export function compatibleTracks(from: Track, to: Track): boolean {
+  return (from.kind === "sample") === (to.kind === "sample");
 }
 
 function audioFailure(error: unknown): string {
@@ -187,6 +206,7 @@ const memoryStorage = {
   removeItem: () => {},
 };
 let storageWarning = false;
+let autosaveSuspended = false;
 let lastSavedValue: string | null = null;
 const browserStorage = {
   getItem: (key: string) => {
@@ -202,7 +222,7 @@ const browserStorage = {
     }
   },
   setItem: (key: string, value: string) => {
-    if (value === lastSavedValue) return;
+    if (autosaveSuspended || value === lastSavedValue) return;
     try {
       localStorage.setItem(key, value);
       lastSavedValue = value;
@@ -605,7 +625,10 @@ export const useStudio = create<StudioState>()(
         if (state.project.tracks.length >= 32)
           throw new Error("This studio supports up to 32 tracks.");
         const id = uid("trk");
-        if (source.kind === "sample") {
+        if (
+          source.kind === "sample" &&
+          (source.clips.some(Boolean) || source.arrangement.some((clip) => !clip.assetId))
+        ) {
           const data = await idbGet(trackId);
           if (!data) throw new Error("The track's audio is missing.");
           await engine.loadSample(id, data);
@@ -674,12 +697,138 @@ export const useStudio = create<StudioState>()(
             ),
           })),
         })),
+      moveRegion: (fromTrackId, clipId, toTrackId, start, copy = false) => {
+        const state = get();
+        const from = state.project.tracks.find((t) => t.id === fromTrackId);
+        const to = state.project.tracks.find((t) => t.id === toTrackId);
+        const clip = from?.arrangement.find((c) => c.id === clipId);
+        if (!from || !to || !clip) return null;
+        if (!compatibleTracks(from, to)) {
+          set({ audioError: "Audio regions can only move to audio tracks, and MIDI to MIDI." });
+          return null;
+        }
+        const placed: ArrangeClip = {
+          ...clip,
+          id: copy ? uid("arr") : clip.id,
+          start: clamp(quantize(start, 0.25), 0, state.project.bars * 4 - clip.length),
+          notes: copy ? clip.notes.map((n) => ({ ...n, id: uid("n") })) : clip.notes,
+        };
+        if (from.kind === "sample" && from.id !== to.id) {
+          // Freeze legacy track-level source settings so the region sounds the same elsewhere.
+          placed.assetId = assetOf(from, clip);
+          placed.sampleStart = clip.sampleStart ?? from.device.sampleOffset;
+          placed.sampleEnd = clip.sampleEnd ?? from.device.sampleEnd;
+          placed.loop = clip.loop ?? from.device.sampleLoop;
+        }
+        set((s) => ({
+          project: {
+            ...s.project,
+            tracks: s.project.tracks.map((track) => {
+              let arrangement = track.arrangement;
+              if (track.id === fromTrackId && !copy)
+                arrangement = arrangement.filter((c) => c.id !== clipId);
+              if (track.id === toTrackId)
+                arrangement = [...arrangement.filter((c) => c.id !== placed.id), placed];
+              return arrangement === track.arrangement ? track : { ...track, arrangement };
+            }),
+          },
+          selectedTrackId: toTrackId,
+        }));
+        return placed.id;
+      },
+      placeAudio: async (trackId, data, name, start) => {
+        if (data.byteLength > 50_000_000) throw new Error(`${name} exceeds the 50 MB limit.`);
+        const assetId = uid("asset");
+        await engine.loadSample(assetId, data);
+        const state = get();
+        let target = trackId ? state.project.tracks.find((t) => t.id === trackId) : undefined;
+        if (target && target.kind !== "sample") target = undefined;
+        if (!target && state.project.tracks.length >= 32)
+          throw new Error("This studio supports up to 32 tracks.");
+        const begin = clamp(quantize(start, 0.25), 0, 511.75);
+        const natural = Math.max(0.25, (engine.duration(assetId) * state.project.bpm) / 60);
+        const length = Math.min(natural, 512 - begin);
+        const id = target?.id ?? uid("trk");
+        const color =
+          target?.color ?? CLIP_COLORS[state.project.tracks.length % CLIP_COLORS.length] ?? "sage";
+        const region: ArrangeClip = {
+          id: uid("arr"),
+          name: name.slice(0, 60) || "Audio",
+          color,
+          start: begin,
+          length,
+          patternLength: length,
+          notes: [],
+          assetId,
+          loop: false,
+        };
+        set((s) => {
+          const bars = Math.min(128, Math.max(s.project.bars, Math.ceil((begin + length) / 4)));
+          const tracks = target
+            ? s.project.tracks.map((t) =>
+                t.id === id ? { ...t, arrangement: [...t.arrangement, region] } : t,
+              )
+            : [
+                ...s.project.tracks,
+                {
+                  id,
+                  name: name.slice(0, 24) || "Audio",
+                  kind: "sample" as const,
+                  color,
+                  volume: 0.8,
+                  pan: 0,
+                  mute: false,
+                  solo: false,
+                  device: { ...defaultDevice("sample"), sampleLoop: false },
+                  clips: s.project.scenes.map(() => null),
+                  arrangement: [region],
+                },
+              ];
+          return { project: { ...s.project, bars, tracks }, selectedTrackId: id };
+        });
+        return { trackId: id, clipId: region.id };
+      },
+      transformRegion: (trackId, clipId, transform) =>
+        set((s) => ({
+          project: mapTracks(s.project, trackId, (t) => ({
+            ...t,
+            arrangement: t.arrangement.map((clip) =>
+              clip.id === clipId
+                ? { ...clip, ...transformMidi(clip, transform, () => uid("n")) }
+                : clip,
+            ),
+          })),
+        })),
+      fitAudioRegion: (trackId, clipId) =>
+        set((s) => {
+          const track = s.project.tracks.find((t) => t.id === trackId);
+          const clip = track?.arrangement.find((c) => c.id === clipId);
+          if (!track || !clip) return s;
+          const duration = engine.duration(assetOf(track, clip));
+          if (!duration) return { audioError: "Load this clip's audio before fitting it." };
+          const beats = naturalBeats(
+            clipWindow(track, clip, duration),
+            playbackRate(clip, s.project.bpm),
+            s.project.bpm,
+          );
+          const length = Math.max(0.25, Math.min(beats, s.project.bars * 4 - clip.start));
+          return {
+            project: mapTracks(s.project, trackId, (t) => ({
+              ...t,
+              arrangement: t.arrangement.map((c) =>
+                c.id === clipId ? { ...c, length, patternLength: length, offset: 0 } : c,
+              ),
+            })),
+          };
+        }),
       splitArrangeClip: (trackId, clipId, beat) =>
         set((s) => ({
           project: mapTracks(s.project, trackId, (t) => ({
             ...t,
             arrangement: t.arrangement.flatMap((clip) =>
-              clip.id === clipId ? splitRegion(clip, quantize(beat, 0.25), uid("arr")) : [clip],
+              clip.id === clipId
+                ? splitRegion(clip, quantize(beat, 0.25), uid("arr"), t.kind === "sample")
+                : [clip],
             ),
           })),
         })),
@@ -986,20 +1135,17 @@ export const useStudio = create<StudioState>()(
       saveProject: async () => {
         const project = get().project;
         const samples: Record<string, string> = {};
-        for (const track of project.tracks.filter((t) => t.kind === "sample")) {
-          const data = await idbGet(track.id);
-          if (!data) {
-            if (track.arrangement.length || track.clips.some(Boolean))
-              throw new Error(
-                `Audio is missing for ${track.name}. Reimport it before saving a portable project.`,
-              );
-            continue;
-          }
+        for (const [id, owner] of requiredAssets(project)) {
+          const data = await idbGet(id);
+          if (!data)
+            throw new Error(
+              `Audio is missing for ${owner}. Reimport it before saving a portable project.`,
+            );
           const bytes = new Uint8Array(data);
           let binary = "";
           for (let i = 0; i < bytes.length; i += 8192)
             binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-          samples[track.id] = btoa(binary);
+          samples[id] = btoa(binary);
         }
         const blob = new Blob(
           [JSON.stringify({ format: "kiln-project", version: 1, project, samples })],
@@ -1019,26 +1165,27 @@ export const useStudio = create<StudioState>()(
             `Invalid KILN project: ${parsed.error.issues[0]?.message ?? "Unsupported format"}`,
           );
         const { project, samples } = parsed.data;
-        const remapped: Track[] = [];
+        // Fresh IDs keep opened audio from overwriting this browser's existing sources.
+        const ids = new Map<string, string>(project.tracks.map((track) => [track.id, uid("trk")]));
+        const remapped: Track[] = project.tracks.map((track) => ({
+          ...track,
+          id: ids.get(track.id)!,
+          arrangement: track.arrangement.map((clip) => {
+            if (!clip.assetId) return clip;
+            if (!ids.has(clip.assetId)) ids.set(clip.assetId, uid("asset"));
+            return { ...clip, assetId: ids.get(clip.assetId) };
+          }),
+        }));
         const prepared: Array<[string, ArrayBuffer]> = [];
         const ctx = new AudioContext();
         try {
-          for (const track of project.tracks) {
-            const id = uid("trk");
-            const data = samples[track.id];
-            if (
-              track.kind === "sample" &&
-              !data &&
-              (track.arrangement.length || track.clips.some(Boolean))
-            )
-              throw new Error(`Project is missing audio for ${track.name}.`);
-            if (data && track.kind === "sample") {
-              const binary = atob(data);
-              const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-              await ctx.decodeAudioData(bytes.buffer.slice(0));
-              prepared.push([id, bytes.buffer]);
-            }
-            remapped.push({ ...track, id });
+          for (const [id, owner] of requiredAssets(project)) {
+            const data = samples[id];
+            if (!data) throw new Error(`Project is missing audio for ${owner}.`);
+            const binary = atob(data);
+            const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+            await ctx.decodeAudioData(bytes.buffer.slice(0));
+            prepared.push([ids.get(id)!, bytes.buffer]);
           }
         } finally {
           await ctx.close();
@@ -1145,6 +1292,57 @@ if (typeof window !== "undefined") {
     }
   });
   engine.sync(snap(useStudio.getState()));
+}
+
+/**
+ * While a shared session is open the cloud room is the source of truth, so the
+ * user's own browser autosave is left untouched until they leave.
+ */
+export function suspendAutosave(suspended: boolean) {
+  autosaveSuspended = suspended;
+  if (!suspended) lastSavedValue = null;
+}
+
+/** Replace the open song without recording undo history (joining or leaving a room). */
+export function replaceProject(project: Project) {
+  engine.pause();
+  restoringHistory = true;
+  useStudio.setState({
+    project,
+    past: [],
+    future: [],
+    launched: {},
+    playing: false,
+    recording: false,
+    beat: 0,
+    follow: "arrange",
+    selectedTrackId: project.tracks[0]!.id,
+    selectedSlot: null,
+    pending: {},
+  });
+  restoringHistory = false;
+}
+
+/**
+ * Apply a collaborator's change. It is not an undoable local edit; instead the
+ * same change is rebased into undo/redo snapshots so undo cannot revert it.
+ */
+export function applyRemoteProject(project: Project, rebase: (snapshot: Project) => Project) {
+  const state = useStudio.getState();
+  restoringHistory = true;
+  useStudio.setState({
+    project,
+    past: state.past.map(rebase),
+    future: state.future.map(rebase),
+    selectedTrackId: project.tracks.some((t) => t.id === state.selectedTrackId)
+      ? state.selectedTrackId
+      : project.tracks[0]!.id,
+    selectedSlot:
+      state.selectedSlot && project.tracks.some((t) => t.id === state.selectedSlot!.trackId)
+        ? state.selectedSlot
+        : null,
+  });
+  restoringHistory = false;
 }
 
 export function phaseFor(

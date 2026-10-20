@@ -151,7 +151,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
       )}
       <a
         className="mt-4 block text-xs text-faint underline"
-        href="/licenses/mp3-encoder.txt"
+        href={`${import.meta.env.BASE_URL}licenses/mp3-encoder.txt`}
         target="_blank"
         rel="noreferrer"
       >

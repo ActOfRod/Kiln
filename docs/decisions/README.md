@@ -39,3 +39,42 @@ KILN has no application SQL or warehouse datasets. Document browser data flow,
 expose it in the UI, and retain a partial machine-readable inventory with the
 table-validator applicability gap. It is preferable to an invented Bronze to
 Platinum graph that falsely describes a music application.
+
+## 2026-10-20: GitHub Pages, not a Windows executable
+
+The studio is a client-only web app, so it is published as a static build to
+GitHub Pages (`vite.pages.config.ts`, `.github/workflows/pages.yml`) on every
+push to `main`, alongside the existing Vercel build. A Windows executable was
+not built: it would wrap the same browser engine without native audio benefits,
+and Chrome / Edge already install the site as a desktop app. Revisit with the
+native-host decision above.
+
+## 2026-10-20: Per-clip immutable audio assets (optional field, no migration)
+
+`ArrangeClip.assetId` names an immutable audio source; absent means the legacy
+track-level source (`track.id`). Old songs load unchanged, new clips get their
+own assets, and portable files store every needed asset. Audio regions now play
+continuously like Ableton clips (start / end markers, loop, offset) instead of
+retriggering every pattern length — a deliberate behavior change for legacy
+audio regions longer than their pattern length.
+
+Clip pitch / warp use sampler-style playback rate (Ableton's Re-Pitch). Pitch-
+preserving stretch needs a DSP time-stretcher and was not faked.
+
+## 2026-10-20: Link-shared live sessions on Supabase
+
+Rejected accounts for the first version: the request was Google-Docs-style
+sharing, and capability links let anyone with the link edit without sign-up.
+Only a SHA-256 of the 256-bit link secret is stored; browsers reach data only
+through SECURITY DEFINER functions (tables have RLS with no policies and no
+grants). Realtime channel names derive from the secret hash.
+
+Rejected a CRDT library (e.g. Yjs) for now: the song is already an immutable
+JSON document, and per-entity last-writer-wins with Lamport stamps gives
+deterministic convergence for tracks / regions with a small, testable module.
+Trade-off: concurrent edits to the same region's notes resolve at region level.
+Revisit with note-level CRDTs if simultaneous piano-roll editing becomes common.
+
+Undo stays personal: remote changes are rebased into the local undo history.
+The user's own browser song is never overwritten by joining; autosave is
+suspended in a room and the original returns on leave.

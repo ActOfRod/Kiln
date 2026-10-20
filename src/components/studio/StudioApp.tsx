@@ -29,6 +29,8 @@ import { DeviceSheet, EditorSheet, PatternSheet } from "./Sheets";
 import { LibraryBrowser } from "./LibraryBrowser";
 import { TrackInspector } from "./TrackInspector";
 import { ExportDialog } from "./ExportDialog";
+import { CollabButton, ShareDialog } from "./Collaboration";
+import { initCollab, useCollab } from "@/collab/session";
 import { Sheet, cx } from "./ui";
 import lineageHtml from "../../../docs/lineage/index.html?raw";
 
@@ -49,6 +51,7 @@ export function StudioApp() {
   const canUndo = useStudio((s) => s.past.length > 0);
   const canRedo = useStudio((s) => s.future.length > 0);
   const error = useStudio((s) => s.audioError);
+  const inRoom = useCollab((s) => !!s.room);
   const [sheet, setSheet] = useState<
     "device" | "editor" | "pattern" | "export" | "add" | "project" | "lineage" | null
   >(null);
@@ -68,7 +71,10 @@ export function StudioApp() {
 
   useEffect(() => {
     if (window.innerWidth < 760) setLibrary(false);
-    void useStudio.persist.rehydrate();
+    let stopCollab: (() => void) | undefined;
+    void Promise.resolve(useStudio.persist.rehydrate()).then(() => {
+      stopCollab = initCollab();
+    });
     const onKey = (event: KeyboardEvent) => {
       const target = event.target;
       if ((event.metaKey || event.ctrlKey) && event.code === "KeyS") {
@@ -105,6 +111,7 @@ export function StudioApp() {
     return () => {
       window.removeEventListener("keydown", onKey);
       unsub();
+      stopCollab?.();
     };
   }, []);
   const openDevice = (id?: string) => {
@@ -138,7 +145,10 @@ export function StudioApp() {
             value={project.name}
             onChange={(event) => useStudio.getState().renameProject(event.target.value)}
           />
-          <span>{project.tracks.length} tracks · 4/4 · local project</span>
+          <span>
+            {project.tracks.length} tracks · 4/4 ·{" "}
+            {inRoom ? "shared live session" : "local project"}
+          </span>
         </div>
         <div className="transport-cluster">
           <button
@@ -192,6 +202,7 @@ export function StudioApp() {
           </button>
         </div>
         <div className="header-actions">
+          <CollabButton />
           <button
             className="icon-button"
             title="Open project"
@@ -335,6 +346,7 @@ export function StudioApp() {
       {sheet === "editor" && <EditorSheet onClose={() => setSheet(null)} />}
       {sheet === "pattern" && <PatternSheet onClose={() => setSheet(null)} />}
       {sheet === "export" && <ExportDialog onClose={() => setSheet(null)} />}
+      <ShareDialog />
       {sheet === "add" && (
         <Sheet title="Add a track" onClose={() => setSheet(null)}>
           <p className="text-sm text-muted mb-4">
@@ -415,7 +427,9 @@ export function StudioApp() {
       )}
       {sheet === "lineage" && (
         <Sheet title="Data Sources & Lineage" onClose={() => setSheet(null)} wide>
-          <h3 className="text-lg mb-3">Your music stays on your device.</h3>
+          <h3 className="text-lg mb-3">
+            Your music stays on your device unless you start a live session.
+          </h3>
           <div className="space-y-4 text-sm text-muted">
             <p>
               <strong className="text-fg">
@@ -426,22 +440,29 @@ export function StudioApp() {
             </p>
             <p>
               <strong className="text-fg">
-                Imported audio → library (IndexedDB) → independent project copy.
+                Imported audio → library (IndexedDB) → independent clip audio.
               </strong>{" "}
-              Library metadata stores name, tags, favorites, duration and import date. Deleting a
-              library sound does not remove audio already added to a project.
+              Library metadata stores name, tags, favorites, duration and import date. Each audio
+              clip keeps its own immutable copy, so deleting a library sound never breaks a song.
             </p>
             <p>
-              <strong className="text-fg">Project edits → browser localStorage.</strong> Track audio
+              <strong className="text-fg">Project edits → browser localStorage.</strong> Clip audio
               is stored separately in IndexedDB. Portable .kiln files include project metadata and
               original audio. Clearing browser data removes local songs and library files;
               downloaded backups remain yours.
             </p>
             <p>
               <strong className="text-fg">
-                No application database, warehouse tables, SQL transformations, or remote audio
-                uploads.
+                Live session → Supabase (kiln_rooms, kiln_room_assets).
               </strong>{" "}
+              Only when you press Share or open a share link, the song snapshot and the audio files
+              it uses are stored in the cloud so collaborators can open them. Database tables are
+              reachable only through functions that require the link’s secret; only a hash of the
+              secret is stored. Cursors and selections travel as live messages and are not saved.
+              Leaving a session returns your own browser song unchanged.
+            </p>
+            <p>
+              <strong className="text-fg">No accounts, warehouse tables or analytics.</strong>{" "}
               Browser storage is not a cross-device backup. Microphone access is requested only when
               you start recording.
             </p>

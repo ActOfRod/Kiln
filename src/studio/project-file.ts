@@ -20,6 +20,18 @@ const region = clip.extend({
   start: finite.min(0).max(2048),
   patternLength: finite.min(0.25).max(2048),
   offset: finite.min(0).max(2048).optional(),
+  assetId: z.string().min(1).max(100).optional(),
+  gain: finite.min(-36).max(24).optional(),
+  transpose: finite.min(-48).max(48).optional(),
+  detune: finite.min(-50).max(50).optional(),
+  reverse: z.boolean().optional(),
+  sampleStart: finite.min(0).max(3600).optional(),
+  sampleEnd: finite.min(0).max(3600).optional(),
+  loop: z.boolean().optional(),
+  warp: z.boolean().optional(),
+  sourceBpm: finite.min(20).max(999).optional(),
+  fadeIn: finite.min(0).max(30).optional(),
+  fadeOut: finite.min(0).max(30).optional(),
 });
 const device = z.object({
   waveform: z.enum(["sine", "triangle", "sawtooth", "square"]),
