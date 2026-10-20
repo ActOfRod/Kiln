@@ -1,14 +1,17 @@
 # KILN
 
 A clean, desktop-first music studio for arranging songs, launching clips,
-organizing sounds and sharing finished mixes. The browser / installed desktop
-PWA is the current runtime; a native executable and mobile redesign are outside
-this release.
+organizing sounds, working on songs together live and sharing finished mixes.
+
+**Open it:** <https://actofrod.github.io/Kiln/> (GitHub Pages, deployed on every
+merge to `main`). It is a web app; Chrome / Edge can install it as a desktop
+app, so no separate Windows executable is built. Mobile redesign is deferred.
 
 The workspace includes a searchable local sound library, a 32-track arrangement
-with region and piano-roll editing, session launcher, synths and drum machine,
-track inspector, mixer, undo / redo, portable projects and **real MP3 / WAV
-exports**. See the [Ableton feature inventory](docs/features.md) for implemented
+with drag-and-drop regions, an Ableton-style **Clip View** for audio clips,
+piano-roll and MIDI clip tools, session launcher, synths and drum machine, track
+inspector, mixer, undo / redo, portable projects, **live collaboration** and
+**real MP3 / WAV exports**. See the [Ableton feature inventory](docs/features.md) for implemented
 capabilities and explicit limitations.
 
 ## Run and verify
@@ -22,6 +25,7 @@ npm run typecheck
 npm run test:studio
 npm test
 npm run build
+npm run build:pages   # static GitHub Pages bundle in dist-pages/
 ```
 
 `startup.sh` is the idempotent restart entrypoint. It starts the npm dev script
@@ -32,27 +36,41 @@ For render checks, install Chromium with `npm exec -- playwright install
 chromium`, then run `node scripts/browser-smoke.mjs http://127.0.0.1:8080/
 screenshots/dev.png`. The interactive regression command is
 `node scripts/studio-browser-check.mjs`; it uses an isolated agent-browser
-session and may download the pinned CLI on first use.
+session and may download the pinned CLI on first use. Clip / drag and
+two-person collaboration checks: `node scripts/clip-browser-check.mjs` and
+`node scripts/collab-browser-check.mjs`.
 
 ## Use the studio
 
-Start with **Night Drive**, press Play, and use the ruler to seek. Click or drag
-a library pattern into a compatible track; an incompatible selected instrument
-gets a new matching track when inserting by click. Double-click an empty MIDI
-lane or a region to open the piano roll. Select a region to duplicate, split at
-the playhead or delete it; drag its right edge to resize.
+Start with **Night Drive**, press Play, and use the ruler to seek. Drag library
+patterns or sounds onto a track, or onto the empty area below the tracks for a
+new track; you can also drop audio files straight from your computer. Click a
+region to open its clip: audio clips show start / end markers, loop, reverse,
+gain, transpose, detune, warp (Re-Pitch) and fades; MIDI clips show the piano
+roll with transpose, velocity, reverse, invert and speed tools. Drag regions
+sideways or onto another track, Alt-drag to copy, drag the right edge to resize
+and the top corners of audio clips to fade. Double-click an empty MIDI lane to
+draw a region.
 
-Import audio into the library, audition it, then use **+** to add an independent
-copy to the song. Name, tag and favorite imported sounds from their library
-details. Each audio track currently has one source file; use separate tracks
-for different files. Microphone recording and source trim live in **Track
-sound**. MIDI recording in Instruments writes into the selected **session
+Import audio into the library, audition it, then drag it in or use **+** for a
+new track. Name, tag and favorite imported sounds from their library details.
+Every placed clip keeps its own copy of the audio. Microphone recording lives in
+**Track sound**. MIDI recording in Instruments writes into the selected **session
 scene**, not directly into an arrangement region.
 
 Export explicitly chooses arrangement or launched session clips, inclusive bar
 range, MP3 bitrate or WAV, and effect tail. Arrangement export ignores session
 overrides. Sessions repeat from bar 1. Audio plays at original sample rate;
 there is no tempo-aware stretching.
+
+## Work together live
+
+Press **Share**, enter your name and **Start live session**, then send the link.
+Everyone with the link edits the same song in real time and sees each other's
+avatars, cursors, selections and playheads; undo only affects your own edits.
+Leaving returns your own browser song (or keeps the shared version). Details:
+[collaboration](docs/collaboration.md). The cloud part uses Supabase and needs
+the repository variable `VITE_SUPABASE_PUBLISHABLE_KEY` (see the runbook).
 
 ## Storage and backups
 
@@ -69,6 +87,7 @@ portable files are limited to 200 MB. File-format support depends on the browser
 
 ## Architecture and operation
 
+- [Live collaboration](docs/collaboration.md)
 - [Architecture and local data flow](docs/architecture.md)
 - [Runbook and failure recovery](docs/runbook.md)
 - [Design decisions](docs/decisions/README.md)
@@ -76,7 +95,9 @@ portable files are limited to 200 MB. File-format support depends on the browser
 - [Agent handoff](docs/agent-handoff.md)
 
 Deployment keeps the existing Vercel / TanStack Start setup and platform preview
-bridge / branding. The encoder is dynamically loaded and runs locally. No audio
-upload service, credentials or new database migrations are required.
+bridge / branding, plus the static GitHub Pages workflow. The MP3 encoder runs
+locally. Audio leaves the browser only when you start or join a live session;
+the Supabase schema lives in `supabase/migrations/`. Never put the database
+password in the app — browsers use only the public publishable key.
 
 Maintainer: the ActOfRod/Kiln repository owner.

@@ -1,10 +1,199 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Copy, Download, Minus, Plus, Scissors, Trash2, X } from "lucide-react";
 import { engine } from "@/studio/engine";
-import { useStudio } from "@/studio/store";
-import { DRUMS, noteName, quantize, uid } from "@/studio/theory";
+import { compatibleTracks, useStudio } from "@/studio/store";
+import { readSound } from "@/studio/library";
+import { PATTERNS } from "@/studio/factory";
+import { sampleBank } from "@/studio/samples";
+import {
+  assetOf,
+  clipGain,
+  clipWindow,
+  fadeLevel,
+  playbackRate,
+  reverseWindow,
+  sourcePosition,
+} from "@/studio/audio-clip";
+import { clamp, DRUMS, noteName, quantize, uid } from "@/studio/theory";
 import type { ArrangeClip, Note, Track } from "@/studio/types";
 import { CLIP_BG, cx } from "./ui";
+import { AudioClipView, MidiClipTools } from "./ClipView";
+import { PEER_COLORS, setCursor, setSelection, useCollab } from "@/collab/session";
+import type { Presence } from "@/collab/backend";
+
+/** Collaborators' playheads, extrapolated between presence updates. */
+function PeerPlayheads({ peers, px, bars }: { peers: Presence[]; px: number; bars: number }) {
+  const lines = useRef<Map<string, HTMLDivElement>>(new Map());
+  useEffect(() => {
+    let frame = 0;
+    const tick = () => {
+      const now = Date.now();
+      for (const peer of peers) {
+        const line = lines.current.get(peer.clientId);
+        if (!line) continue;
+        const beat = (peer.beat + ((now - peer.at) / 1000) * (peer.bpm / 60)) % (bars * 4);
+        line.style.transform = `translateX(${beat * px}px)`;
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [peers, px, bars]);
+  return (
+    <>
+      {peers.map((peer) => (
+        <div
+          key={peer.clientId}
+          ref={(node) => {
+            if (node) lines.current.set(peer.clientId, node);
+            else lines.current.delete(peer.clientId);
+          }}
+          className="peer-playhead"
+          style={{ left: HEADER, background: PEER_COLORS[peer.color] }}
+          title={`${peer.name} is playing`}
+        />
+      ))}
+    </>
+  );
+}
+
+const DRAG_TYPES = ["application/kiln-pattern", "application/kiln-sound", "Files"];
+
+function failure(error: unknown) {
+  useStudio.setState({ audioError: error instanceof Error ? error.message : String(error) });
+}
+
+function isAudioFile(file: File) {
+  return (
+    file.type.startsWith("audio/") || /\.(wav|mp3|aiff?|flac|ogg|m4a|aac|webm)$/i.test(file.name)
+  );
+}
+
+/**
+ * Drop library patterns, library sounds or audio files from the computer onto a
+ * lane (`target`) or the empty area below the tracks (a new track).
+ */
+async function dropMaterial(event: DragEvent, target: Track | null, start: number) {
+  const act = useStudio.getState();
+  const patternId = event.dataTransfer.getData("application/kiln-pattern");
+  const soundId = event.dataTransfer.getData("application/kiln-sound");
+  const files = Array.from(event.dataTransfer.files).filter(isAudioFile);
+  const audioTarget = target?.kind === "sample" ? target.id : null;
+  if (patternId) {
+    const pattern = PATTERNS.find((item) => item.id === patternId);
+    if (!pattern) return;
+    let trackId = target && target.kind === pattern.kind ? target.id : null;
+    if (!trackId) {
+      act.addTrack(pattern.kind);
+      trackId = useStudio.getState().selectedTrackId;
+    }
+    act.addRegion(trackId, patternId, start);
+    return;
+  }
+  if (soundId) {
+    const sound = await readSound(soundId);
+    await act.placeAudio(audioTarget, sound.data, sound.name, start);
+    return;
+  }
+  if (event.dataTransfer.files.length && !files.length)
+    throw new Error("Drop audio files such as WAV, MP3, AIFF, FLAC or OGG.");
+  for (const [index, file] of files.entries())
+    await act.placeAudio(
+      index === 0 ? audioTarget : null,
+      await file.arrayBuffer(),
+      file.name.replace(/\.[^.]+$/, ""),
+      start,
+    );
+}
+
+type DragMode = "move" | "resize" | "fade-in" | "fade-out";
+
+/**
+ * Pointer drag that survives the region re-rendering under another track:
+ * listeners live on the window and the target lane is found under the pointer.
+ */
+function startRegionDrag(
+  event: ReactPointerEvent,
+  options: {
+    trackId: string;
+    clip: ArrangeClip;
+    px: number;
+    snap: number;
+    mode: DragMode;
+    copy: boolean;
+    onMoved: (trackId: string, clipId: string) => void;
+    onEnd: (moved: boolean) => void;
+  },
+) {
+  const { clip, px, snap, mode } = options;
+  const origin = event.clientX;
+  const state = { trackId: options.trackId, clipId: clip.id, copied: false, moved: false };
+  const act = useStudio.getState();
+  act.beginEdit();
+  const move = (e: PointerEvent) => {
+    if (Math.abs(e.clientX - origin) > 3) state.moved = true;
+    const beats = (e.clientX - origin) / px;
+    const studio = useStudio.getState();
+    const spb = 60 / studio.project.bpm;
+    if (mode === "resize") {
+      studio.updateRegion(state.trackId, state.clipId, {
+        length: Math.max(snap, quantize(clip.length + beats, snap)),
+      });
+      return;
+    }
+    if (mode === "fade-in" || mode === "fade-out") {
+      const span = clip.length * spb;
+      const base = (mode === "fade-in" ? clip.fadeIn : clip.fadeOut) ?? 0;
+      const value = clamp(
+        base + (mode === "fade-in" ? beats : -beats) * spb,
+        0,
+        Math.min(30, span),
+      );
+      studio.updateRegion(state.trackId, state.clipId, {
+        [mode === "fade-in" ? "fadeIn" : "fadeOut"]: Math.round(value * 1000) / 1000,
+      });
+      return;
+    }
+    const lane = document
+      .elementFromPoint(e.clientX, e.clientY)
+      ?.closest<HTMLElement>("[data-track-id]");
+    const from = studio.project.tracks.find((t) => t.id === state.trackId);
+    const over = studio.project.tracks.find((t) => t.id === lane?.dataset.trackId);
+    const toTrack = over && from && compatibleTracks(from, over) ? over.id : state.trackId;
+    const start = Math.max(0, quantize(clip.start + beats, snap));
+    if (options.copy && !state.copied) {
+      if (Math.abs(e.clientX - origin) < 4 && toTrack === state.trackId) return;
+      const id = studio.moveRegion(state.trackId, state.clipId, toTrack, start, true);
+      if (!id) return;
+      Object.assign(state, { trackId: toTrack, clipId: id, copied: true });
+      options.onMoved(toTrack, id);
+      return;
+    }
+    if (toTrack !== state.trackId) {
+      state.moved = true;
+      if (studio.moveRegion(state.trackId, state.clipId, toTrack, start)) {
+        state.trackId = toTrack;
+        options.onMoved(toTrack, state.clipId);
+      }
+    } else studio.moveArrangeClip(state.trackId, state.clipId, start);
+  };
+  const end = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    useStudio.getState().endEdit();
+    options.onEnd(state.moved || state.copied);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
 
 const HEADER = 184;
 const COLORS = { ember: "#e8893a", clay: "#d4785a", gold: "#e0c06a", sage: "#9fb58a" };
@@ -39,9 +228,21 @@ export function ArrangeView() {
     return () => cancelAnimationFrame(frame);
   }, [playing, px, beat]);
   const width = project.bars * 4 * px;
-  const choose = (trackId: string, clipId: string) => {
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const peers = useCollab((s) => s.peers);
+  const inRoom = useCollab((s) => !!s.room);
+  useEffect(() => setSelection(selected?.clipId ?? null), [selected?.clipId]);
+  const choose = (trackId: string, clipId: string, open = true) => {
     act.selectTrack(trackId);
     setSelected({ trackId, clipId });
+    if (open) setEditor(true);
+  };
+  const acceptsDrop = (event: DragEvent) =>
+    Array.from(event.dataTransfer.types).some((type) => DRAG_TYPES.includes(type));
+  const handleDrop = (event: DragEvent, target: Track | null, start: number) => {
+    event.preventDefault();
+    setDropTarget(null);
+    void dropMaterial(event, target, start).catch(failure);
   };
   return (
     <div
@@ -111,7 +312,21 @@ export function ArrangeView() {
           Session playback is active — return to arrangement
         </button>
       )}
-      <div ref={scroller} className="timeline-scroll">
+      <div
+        ref={scroller}
+        className="timeline-scroll"
+        onPointerMove={(event) => {
+          if (!inRoom) return;
+          const lane =
+            event.target instanceof Element
+              ? event.target.closest<HTMLElement>("[data-track-id]")
+              : null;
+          if (!lane) return setCursor(null);
+          const beat = (event.clientX - lane.getBoundingClientRect().left) / px;
+          setCursor({ trackId: lane.dataset.trackId!, beat: Math.max(0, beat) });
+        }}
+        onPointerLeave={() => inRoom && setCursor(null)}
+      >
         <div className="timeline" style={{ width: width + HEADER, minHeight: "100%" }}>
           <div className="timeline-ruler" style={{ paddingLeft: HEADER }}>
             <div className="track-ruler-label" style={{ width: HEADER }}>
@@ -141,7 +356,19 @@ export function ArrangeView() {
                 <button className="track-name-button" onClick={() => act.selectTrack(t.id)}>
                   <span className="track-number">{String(index + 1).padStart(2, "0")}</span>
                   <strong>{t.name}</strong>
-                  <small>{t.kind === "sample" ? "AUDIO" : t.kind.toUpperCase()}</small>
+                  <small>
+                    {t.kind === "sample" ? "AUDIO" : t.kind.toUpperCase()}
+                    {peers
+                      .filter((peer) => peer.trackId === t.id)
+                      .map((peer) => (
+                        <span
+                          key={peer.clientId}
+                          className="peer-track-dot"
+                          title={`${peer.name} is on this track`}
+                          style={{ background: PEER_COLORS[peer.color] }}
+                        />
+                      ))}
+                  </small>
                 </button>
                 <div className="track-switches">
                   <button
@@ -163,17 +390,22 @@ export function ArrangeView() {
                 </div>
               </div>
               <div
-                className="arrange-lane"
+                className={cx("arrange-lane", dropTarget === t.id && "drop-target")}
+                data-track-id={t.id}
                 style={{ width, backgroundSize: `${px * 4}px 100%, ${px}px 100%` }}
                 onDragOver={(event) => {
-                  if (Array.from(event.dataTransfer.types).includes("application/kiln-pattern"))
-                    event.preventDefault();
+                  if (!acceptsDrop(event)) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                  if (dropTarget !== t.id) setDropTarget(t.id);
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+                    setDropTarget(null);
                 }}
                 onDrop={(event) => {
-                  event.preventDefault();
-                  const patternId = event.dataTransfer.getData("application/kiln-pattern");
                   const x = event.clientX - event.currentTarget.getBoundingClientRect().left;
-                  act.addRegion(t.id, patternId, quantize(x / px, snap));
+                  handleDrop(event, t, quantize(x / px, snap));
                 }}
                 onDoubleClick={(event) => {
                   if (event.target !== event.currentTarget || t.kind === "sample") return;
@@ -219,19 +451,52 @@ export function ArrangeView() {
                     px={px}
                     snap={snap}
                     selected={selected?.clipId === clip.id}
-                    onSelect={() => choose(t.id, clip.id)}
-                    onEdit={() => {
-                      choose(t.id, clip.id);
-                      setEditor(true);
+                    onSelect={() => choose(t.id, clip.id, false)}
+                    onEdit={() => choose(t.id, clip.id)}
+                    onMoved={(trackId, clipId) => {
+                      act.selectTrack(trackId);
+                      setSelected({ trackId, clipId });
                     }}
+                    peers={peers.filter((peer) => peer.regionId === clip.id)}
                   />
                 ))}
+                {peers
+                  .filter((peer) => peer.cursor?.trackId === t.id)
+                  .map((peer) => (
+                    <div
+                      key={peer.clientId}
+                      className="peer-cursor"
+                      style={{ left: peer.cursor!.beat * px, color: PEER_COLORS[peer.color] }}
+                      aria-hidden="true"
+                    >
+                      <svg viewBox="0 0 12 16" width="12" height="16">
+                        <path d="M0 0 L12 9 L6 9.5 L3 16 Z" fill="currentColor" />
+                      </svg>
+                      <span style={{ background: PEER_COLORS[peer.color] }}>{peer.name}</span>
+                    </div>
+                  ))}
               </div>
             </div>
           ))}
-          <div className="timeline-empty" style={{ marginLeft: HEADER }}>
-            Drag a pattern from the library, or double-click a lane to create a region.
+          <div
+            className={cx("timeline-empty", dropTarget === "new" && "drop-target")}
+            style={{ marginLeft: HEADER }}
+            onDragOver={(event) => {
+              if (!acceptsDrop(event)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "copy";
+              if (dropTarget !== "new") setDropTarget("new");
+            }}
+            onDragLeave={() => setDropTarget(null)}
+            onDrop={(event) => {
+              const x = event.clientX - event.currentTarget.getBoundingClientRect().left;
+              handleDrop(event, null, quantize(Math.max(0, x) / px, snap));
+            }}
+          >
+            Drop patterns, library sounds or audio files here for a new track. Double-click a MIDI
+            lane to draw a region; Alt-drag a region to copy it.
           </div>
+          <PeerPlayheads peers={peers.filter((peer) => peer.playing)} px={px} bars={project.bars} />
           <div ref={head} className="timeline-playhead" style={{ left: HEADER }}>
             <span />
           </div>
@@ -246,7 +511,7 @@ export function ArrangeView() {
           </span>
           <div className="toolbar-spacer" />
           <button className="studio-button" onClick={() => setEditor(!editor)}>
-            {editor ? "Hide editor" : "Edit region"}
+            {editor ? "Hide clip" : "Show clip"}
           </button>
           <button
             className="icon-button"
@@ -277,16 +542,51 @@ export function ArrangeView() {
           </button>
         </div>
       )}
-      {editor && track && selectedRegion && (
-        <RegionEditor
-          key={selectedRegion.id}
-          track={track}
-          clip={selectedRegion}
-          onClose={() => setEditor(false)}
-        />
-      )}
+      {editor &&
+        track &&
+        selectedRegion &&
+        (track.kind === "sample" ? (
+          <AudioClipView
+            key={selectedRegion.id}
+            track={track}
+            clip={selectedRegion}
+            onClose={() => setEditor(false)}
+          />
+        ) : (
+          <RegionEditor
+            key={selectedRegion.id}
+            track={track}
+            clip={selectedRegion}
+            onClose={() => setEditor(false)}
+          />
+        ))}
     </div>
   );
+}
+
+function audioPreview(track: Track, clip: ArrangeClip, bpm: number, points = 120): number[] | null {
+  const buffer = sampleBank.get(assetOf(track, clip));
+  const peaks = engine.peaks(assetOf(track, clip));
+  if (!buffer || !peaks?.length) return null;
+  const duration = buffer.duration;
+  const forward = clipWindow(track, clip, duration);
+  const window = clip.reverse ? reverseWindow(forward, duration) : forward;
+  const rate = playbackRate(clip, bpm);
+  const spb = 60 / bpm;
+  const gain = Math.min(1.6, clipGain(clip));
+  const span = clip.length * spb;
+  return Array.from({ length: points }, (_, i) => {
+    const beat = ((i + 0.5) / points) * clip.length;
+    const position = sourcePosition(window, (beat + (clip.offset ?? 0)) * spb * rate);
+    if (position == null) return 0;
+    const real = clip.reverse ? duration - position : position;
+    const peak =
+      peaks[Math.min(peaks.length - 1, Math.floor((real / duration) * peaks.length))] ?? 0;
+    return Math.min(
+      1,
+      peak * gain * fadeLevel(beat * spb, 0, span, clip.fadeIn ?? 0, clip.fadeOut ?? 0),
+    );
+  });
 }
 
 function RegionBlock({
@@ -297,6 +597,8 @@ function RegionBlock({
   selected,
   onSelect,
   onEdit,
+  onMoved,
+  peers,
 }: {
   track: Track;
   clip: ArrangeClip;
@@ -305,17 +607,34 @@ function RegionBlock({
   selected: boolean;
   onSelect: () => void;
   onEdit: () => void;
+  onMoved: (trackId: string, clipId: string) => void;
+  peers: Presence[];
 }) {
-  const drag = useRef<{ x: number; value: number; resize: boolean } | null>(null);
-  const peaks = track.kind === "sample" ? engine.peaks(track.id) : null;
   useStudio((s) => s.sampleRev);
+  const bpm = useStudio((s) => s.project.bpm);
+  const audio = track.kind === "sample";
+  const wave = audio ? audioPreview(track, clip, bpm) : null;
+  const spb = 60 / bpm;
+  const fadeInPx = Math.min(clip.length * px, ((clip.fadeIn ?? 0) / spb) * px);
+  const fadeOutPx = Math.min(clip.length * px, ((clip.fadeOut ?? 0) / spb) * px);
+  const badges = [
+    clip.reverse && "REV",
+    clip.warp && "WARP",
+    clip.transpose ? `${clip.transpose > 0 ? "+" : ""}${clip.transpose}st` : null,
+    clip.gain ? `${clip.gain > 0 ? "+" : ""}${clip.gain.toFixed(1)}dB` : null,
+  ].filter(Boolean);
   return (
     <div
       role="button"
       aria-label={`Region ${clip.name}`}
       tabIndex={0}
       className={cx("region-block", CLIP_BG[clip.color], selected && "region-selected")}
-      style={{ left: clip.start * px, width: Math.max(8, clip.length * px - 2) }}
+      data-region-id={clip.id}
+      style={{
+        left: clip.start * px,
+        width: Math.max(8, clip.length * px - 2),
+        ...(peers[0] && { boxShadow: `0 0 0 2px ${PEER_COLORS[peers[0].color]}` }),
+      }}
       onKeyDown={(event) => {
         if (event.key === "Enter") onEdit();
         if (event.key === "Delete" || event.key === "Backspace") {
@@ -331,45 +650,43 @@ function RegionBlock({
         if (event.button !== 0) return;
         event.preventDefault();
         onSelect();
-        useStudio.getState().beginEdit();
-        const resize =
-          event.target instanceof HTMLElement && event.target.dataset.resize === "true";
-        drag.current = { x: event.clientX, value: resize ? clip.length : clip.start, resize };
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={(event) => {
-        if (!drag.current || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-        const next = quantize(drag.current.value + (event.clientX - drag.current.x) / px, snap);
-        if (drag.current.resize)
-          useStudio.getState().updateRegion(track.id, clip.id, { length: Math.max(snap, next) });
-        else useStudio.getState().moveArrangeClip(track.id, clip.id, Math.max(0, next));
-      }}
-      onPointerUp={() => {
-        drag.current = null;
-        useStudio.getState().endEdit();
-      }}
-      onPointerCancel={() => {
-        drag.current = null;
-        useStudio.getState().endEdit();
+        const handle =
+          event.target instanceof Element ? event.target.closest<HTMLElement>("[data-drag]") : null;
+        startRegionDrag(event, {
+          trackId: track.id,
+          clip,
+          px,
+          snap,
+          mode: (handle?.dataset.drag as DragMode | undefined) ?? "move",
+          copy: event.altKey,
+          onMoved,
+          // A click without dragging opens the Clip View, like Ableton.
+          onEnd: (moved) => {
+            if (!moved) onEdit();
+          },
+        });
       }}
     >
-      <div className="region-label">{clip.name}</div>
+      <div className="region-label">
+        {clip.name}
+        {badges.length > 0 && <span className="region-badges">{badges.join(" · ")}</span>}
+      </div>
       <svg
         className="region-preview"
         viewBox="0 0 200 32"
         preserveAspectRatio="none"
         aria-hidden="true"
       >
-        {peaks
-          ? peaks.map((peak, i) => (
+        {wave
+          ? wave.map((peak, i) => (
               <line
                 key={i}
-                x1={(i / peaks.length) * 200}
-                x2={(i / peaks.length) * 200}
+                x1={((i + 0.5) / wave.length) * 200}
+                x2={((i + 0.5) / wave.length) * 200}
                 y1={16 - peak * 15}
                 y2={16 + peak * 15}
                 stroke="currentColor"
-                strokeWidth={1.4}
+                strokeWidth={1.2}
               />
             ))
           : clip.notes
@@ -385,7 +702,42 @@ function RegionBlock({
                 />
               ))}
       </svg>
-      <div className="region-resize" data-resize="true" title="Drag to resize" />
+      {audio && (
+        <>
+          {fadeInPx > 1 && (
+            <span className="region-fade-shape in" style={{ width: fadeInPx }} aria-hidden="true" />
+          )}
+          {fadeOutPx > 1 && (
+            <span
+              className="region-fade-shape out"
+              style={{ width: fadeOutPx }}
+              aria-hidden="true"
+            />
+          )}
+          <span
+            className="region-fade-handle in"
+            data-drag="fade-in"
+            style={{ left: Math.max(0, fadeInPx - 5) }}
+            title="Drag to fade in"
+          />
+          <span
+            className="region-fade-handle out"
+            data-drag="fade-out"
+            style={{ right: Math.max(0, fadeOutPx - 5) }}
+            title="Drag to fade out"
+          />
+        </>
+      )}
+      {peers.length > 0 && (
+        <span
+          className="peer-region-tag"
+          style={{ background: PEER_COLORS[peers[0]!.color] }}
+          title={`${peers.map((p) => p.name).join(", ")} selected this region`}
+        >
+          {peers.map((p) => p.name).join(", ")}
+        </span>
+      )}
+      <div className="region-resize" data-drag="resize" title="Drag to resize" />
     </div>
   );
 }
@@ -432,13 +784,9 @@ function RegionEditor({
           <X size={14} />
         </button>
       </div>
-      {track.kind === "sample" ? (
-        <p className="text-sm text-muted p-3">
-          Audio regions use this track’s source file. Open the inspector’s Audio sampler to trim the
-          source or record a microphone take. Independent audio files live on separate tracks.
-        </p>
-      ) : (
+      {
         <>
+          <MidiClipTools track={track} clip={clip} />
           <div className="note-editor-controls">
             <label>
               Pattern beats
@@ -590,7 +938,7 @@ function RegionEditor({
             </div>
           </div>
         </>
-      )}
+      }
     </section>
   );
 }

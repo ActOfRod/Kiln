@@ -194,7 +194,7 @@ try {
   browser("find", "role", "button", "click", "--name", "Data Sources & Lineage");
   check(
     "lineage navigation exposes local storage and export provenance",
-    'document.querySelector("[role=dialog]").textContent.includes("IndexedDB")&&document.querySelector("[role=dialog]").textContent.includes("No application database")&&document.querySelector("iframe[title=\\"Technical lineage inventory\\"]").srcdoc.includes("KILN desktop studio")',
+    'document.querySelector("[role=dialog]").textContent.includes("IndexedDB")&&document.querySelector("[role=dialog]").textContent.includes("kiln_rooms")&&document.querySelector("iframe[title=\\"Technical lineage inventory\\"]").srcdoc.includes("KILN desktop studio")',
   );
   browser("screenshot", resolve("screenshots/studio-workflows.png"));
   assert.equal(browser("errors").trim(), "", "No uncaught browser errors");

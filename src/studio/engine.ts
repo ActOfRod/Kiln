@@ -1,7 +1,17 @@
-import type { Follow, LaunchState, Note, Project, Track } from "./types";
+import type { ArrangeClip, Follow, LaunchState, Note, Project, Track } from "./types";
 import { clamp } from "./theory";
 import { encodeMp3, type ExportOptions } from "./export";
 import { regionOffset } from "./regions";
+import {
+  assetOf,
+  clipGain,
+  clipWindow,
+  fadeLevel,
+  playbackRate,
+  requiredAssets,
+  reverseWindow,
+  sourcePosition,
+} from "./audio-clip";
 import { computePeaks, idbDel, idbGet, idbPut, sampleBank, samplePeaks } from "./samples";
 import {
   buildGraph,
@@ -308,6 +318,11 @@ class Performer {
       const a = Math.max(from, clip.start);
       const b = Math.min(to, end);
       if (b <= a) continue;
+      if (track.kind === "sample") {
+        const begin = Math.max(clip.start, this.originBeat);
+        if (begin >= from && begin < to && begin < end) this.playAudioRegion(track, clip, begin);
+        continue;
+      }
       this.schedulePattern(
         track,
         clip.notes,
@@ -424,6 +439,53 @@ class Performer {
     this.keep(src);
   }
 
+  /** Ableton-style audio clip: one continuous voice from `begin` to the region end. */
+  playAudioRegion(track: Track, clip: ArrangeClip, begin: number) {
+    const assetId = assetOf(track, clip);
+    const buffer = sampleBank.get(assetId);
+    const graph = this.graphs.get(track.id);
+    if (!buffer || !graph || !this.audible(track)) return;
+    const t = this.beatToTime(begin);
+    if (!this.offline && t < this.ctx.currentTime - 0.03) return;
+    const spb = 60 / this.bpm;
+    const rate = playbackRate(clip, this.bpm);
+    const forward = clipWindow(track, clip, buffer.duration);
+    const window = clip.reverse ? reverseWindow(forward, buffer.duration) : forward;
+    const elapsed = (begin - clip.start + regionOffset(clip)) * spb * rate;
+    const position = sourcePosition(window, elapsed);
+    if (position == null) return;
+    const regionStartT = this.beatToTime(clip.start);
+    const regionEndT = this.beatToTime(clip.start + clip.length);
+    const playDur = window.loop
+      ? regionEndT - t
+      : Math.min(regionEndT - t, (window.end - position) / rate);
+    if (playDur <= 0.002) return;
+    const stop = t + playDur;
+    const src = this.ctx.createBufferSource();
+    src.buffer = clip.reverse ? reversedBuffer(assetId, buffer) : buffer;
+    src.playbackRate.value = rate;
+    src.loop = window.loop;
+    src.loopStart = window.start;
+    src.loopEnd = window.end;
+    const gain = this.ctx.createGain();
+    const level = clipGain(clip) * 0.9;
+    const fadeIn = clamp(clip.fadeIn ?? 0, 0, 30);
+    const fadeOut = clamp(clip.fadeOut ?? 0, 0, 30);
+    const at = (time: number) => level * fadeLevel(time, regionStartT, regionEndT, fadeIn, fadeOut);
+    const declick = Math.min(0.005, playDur / 4);
+    const points = [regionStartT + fadeIn, regionEndT - fadeOut, stop - declick]
+      .filter((time) => time > t && time < stop)
+      .sort((a, b) => a - b);
+    gain.gain.setValueAtTime(at(t), t);
+    for (const time of points) gain.gain.linearRampToValueAtTime(at(time), time);
+    gain.gain.linearRampToValueAtTime(0, stop);
+    src.connect(gain);
+    gain.connect(graph.input);
+    src.start(t, position);
+    src.stop(stop);
+    this.keep(src);
+  }
+
   keep(node: AudioScheduledSourceNode) {
     this.voices.push(node);
     node.onended = () => {
@@ -513,6 +575,25 @@ class Performer {
   }
 }
 
+const reversedBank = new Map<string, AudioBuffer>();
+
+function reversedBuffer(id: string, buffer: AudioBuffer): AudioBuffer {
+  const cached = reversedBank.get(id);
+  if (cached?.length === buffer.length) return cached;
+  const reversed = new AudioBuffer({
+    length: buffer.length,
+    numberOfChannels: buffer.numberOfChannels,
+    sampleRate: buffer.sampleRate,
+  });
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const data = Float32Array.from(buffer.getChannelData(channel));
+    data.reverse();
+    reversed.copyToChannel(data, channel);
+  }
+  reversedBank.set(id, reversed);
+  return reversed;
+}
+
 function encodeWav(buffer: AudioBuffer): Blob {
   const channels = buffer.numberOfChannels;
   const rate = buffer.sampleRate;
@@ -579,7 +660,8 @@ class Engine {
     this.performer?.update(snap);
   }
 
-  async ensure(restore = true) {
+  /** Create the audio graph; decoding works before the browser allows playback to resume. */
+  async ensure(restore = true, resume = true) {
     if (!this.snap) return;
     if (!this.performer) {
       const ctx = new AudioContext();
@@ -587,7 +669,11 @@ class Engine {
       this.performer.hooks = this.wrapHooks();
     }
     if (restore) await this.restoreSamples();
-    if (this.performer.ctx instanceof AudioContext && this.performer.ctx.state === "suspended") {
+    if (
+      resume &&
+      this.performer.ctx instanceof AudioContext &&
+      this.performer.ctx.state === "suspended"
+    ) {
       await this.performer.ctx.resume();
     }
     this.performer.update(this.snap);
@@ -630,18 +716,20 @@ class Engine {
   }
 
   async loadSample(trackId: string, data: ArrayBuffer) {
-    await this.ensure(false);
+    await this.ensure(false, false);
     const ctx = this.performer?.ctx;
     if (!(ctx instanceof AudioContext)) throw new Error("Audio isn't ready");
     const audio = await ctx.decodeAudioData(data.slice(0));
     await idbPut(trackId, data);
     sampleBank.set(trackId, audio);
     samplePeaks.set(trackId, computePeaks(audio));
+    reversedBank.delete(trackId);
     this.hooks.onSamples?.();
   }
 
   async clearSample(trackId: string) {
     sampleBank.delete(trackId);
+    reversedBank.delete(trackId);
     samplePeaks.delete(trackId);
     try {
       await idbDel(trackId);
@@ -654,27 +742,28 @@ class Engine {
   async restoreSamples() {
     const ctx = this.performer?.ctx;
     if (!(ctx instanceof AudioContext) || !this.snap) return;
-    const ids = this.snap.project.tracks
-      .filter((t) => t.kind === "sample" && (t.arrangement.length || t.clips.some(Boolean)))
-      .map((t) => t.id);
-    for (const id of ids) {
+    for (const [id, owner] of requiredAssets(this.snap.project)) {
       if (sampleBank.has(id)) continue;
       try {
         const data = await idbGet(id);
         if (!data)
           throw new Error(
-            `Audio for ${id} is missing. Reimport the file or open a project backup.`,
+            `Audio for ${owner} is missing. Reimport the file or open a project backup.`,
           );
         const audio = await ctx.decodeAudioData(data.slice(0));
         sampleBank.set(id, audio);
         samplePeaks.set(id, computePeaks(audio));
       } catch (error) {
         throw new Error(
-          `Could not restore sample ${id}: ${error instanceof Error ? error.message : "Unknown error"}`,
+          `Could not restore audio for ${owner}: ${error instanceof Error ? error.message : "Unknown error"}`,
         );
       }
     }
     this.hooks.onSamples?.();
+  }
+
+  hasAsset(id: string): boolean {
+    return sampleBank.has(id);
   }
 
   async bounce(snap: Snapshot, options: ExportOptions): Promise<Blob> {

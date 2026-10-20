@@ -1,0 +1,152 @@
+{
+  "captured_at": "2026-10-20T13:03:16Z",
+  "environment": "Supabase project nfcgdbmasvoamdmykjwp, database postgres, schema public",
+  "origin": "postgres_information_schema",
+  "method": "Read-only metadata queries (information_schema.columns, role_table_grants, pg_class, pg_proc). No row data was read.",
+  "tables": [
+    {
+      "id": "supabase.public.kiln_room_assets",
+      "row_level_security": true,
+      "columns": [
+        {
+          "name": "room_id",
+          "data_type": "uuid",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "name": "asset_id",
+          "data_type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "name": "chunk_index",
+          "data_type": "integer",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "name": "chunk_count",
+          "data_type": "integer",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "name": "data",
+          "data_type": "bytea",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "data_type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ]
+    },
+    {
+      "id": "supabase.public.kiln_rooms",
+      "row_level_security": true,
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "uuid",
+          "nullable": false,
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "secret_hash",
+          "data_type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "name": "name",
+          "data_type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "name": "project",
+          "data_type": "jsonb",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "name": "clocks",
+          "data_type": "jsonb",
+          "nullable": false,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "revision",
+          "data_type": "bigint",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "name": "created_at",
+          "data_type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "data_type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ]
+    }
+  ],
+  "anon_table_grants": [],
+  "functions": [
+    {
+      "proname": "kiln_assert_access",
+      "security_definer": true,
+      "anon_execute": false
+    },
+    {
+      "proname": "kiln_create_room",
+      "security_definer": true,
+      "anon_execute": true
+    },
+    {
+      "proname": "kiln_get_asset_chunk",
+      "security_definer": true,
+      "anon_execute": true
+    },
+    {
+      "proname": "kiln_get_room",
+      "security_definer": true,
+      "anon_execute": true
+    },
+    {
+      "proname": "kiln_list_assets",
+      "security_definer": true,
+      "anon_execute": true
+    },
+    {
+      "proname": "kiln_purge_rooms",
+      "security_definer": false,
+      "anon_execute": false
+    },
+    {
+      "proname": "kiln_put_asset_chunk",
+      "security_definer": true,
+      "anon_execute": true
+    },
+    {
+      "proname": "kiln_save_room",
+      "security_definer": true,
+      "anon_execute": true
+    },
+    {
+      "proname": "kiln_secret_hash",
+      "security_definer": false,
+      "anon_execute": false
+    }
+  ]
+}

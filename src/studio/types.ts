@@ -29,6 +29,24 @@ export interface ArrangeClip {
   patternLength: number;
   offset?: number;
   notes: Note[];
+  /** Audio regions: immutable source ID. Legacy regions use their track ID. */
+  assetId?: string;
+  /** Audio clip gain in dB. */
+  gain?: number;
+  /** Re-pitch in semitones / cents; like a sampler, this also changes speed. */
+  transpose?: number;
+  detune?: number;
+  reverse?: boolean;
+  /** Source window in seconds. Undefined falls back to the track's sample trim. */
+  sampleStart?: number;
+  sampleEnd?: number;
+  loop?: boolean;
+  /** Re-Pitch warp: playback rate follows project BPM / sourceBpm. */
+  warp?: boolean;
+  sourceBpm?: number;
+  /** Fades in seconds at the region's arrangement boundaries. */
+  fadeIn?: number;
+  fadeOut?: number;
 }
 
 export interface Device {

@@ -1,47 +1,44 @@
 # Desktop studio handoff
 
-Read README, features, architecture, runbook and decisions first. Main code:
-`StudioApp.tsx`, `ArrangeView.tsx`, `LibraryBrowser.tsx`, `TrackInspector.tsx`,
-`ExportDialog.tsx`; `src/studio/store.ts`, `engine.ts`, `voices.ts`,
-`regions.ts`, `project-file.ts`, `library.ts`, `samples.ts`, `export.ts`.
+Read README, features, collaboration, architecture, runbook and decisions first.
+Main code: `StudioApp.tsx`, `ArrangeView.tsx`, `ClipView.tsx`,
+`Collaboration.tsx`, `LibraryBrowser.tsx`, `TrackInspector.tsx`,
+`ExportDialog.tsx`; `src/studio/store.ts`, `engine.ts`, `audio-clip.ts`,
+`regions.ts`, `project-file.ts`, `library.ts`, `samples.ts`, `export.ts`;
+`src/collab/doc.ts`, `session.ts`, `supabase-backend.ts`, `local-backend.ts`;
+`supabase/migrations/`.
 
-October 19, 2026, macOS / Node 24: the targeted studio tests and TypeScript
-check passed (9 studio tests). The isolated browser regression passed all 20 checks, including
-decoding a non-silent stereo MP3 and restoring a project containing imported
-audio after reload, concurrent library metadata updates, length-preserving
-region movement, live graph continuity on track reorder and audible rendering
-through the final bar of a 128-bar song, and actionable missing-source errors on
-repeated playback attempts. Desktop and 390px render checks showed visible content,
-no page / console errors, no outer horizontal overflow and existing custom
-branding. See the runbook for commands to reproduce; screenshots are ignored
-local artifacts, not deployment inputs.
+## State on 2026-10-20
 
-The smoke-verdict suite passed 40 tests and existing TypeScript library tests
-passed 59 tests. Targeted ESLint completed with no errors and four existing-pattern
-warnings (PlayView effect dependencies and mixed utility/component exports in
-ui.tsx). The complete script suite has 197 tests, 181 passing and 16 failing;
-the same 16 failures were reproduced from original HEAD in an isolated archive.
-They concern missing ignored `.grok` template assets/config and template branding
-expectations, not the desktop changes. Do not claim the full repository suite is green.
+- Clip View: clicking an audio clip opens Ableton-style controls (markers,
+  loop, reverse, gain, transpose, detune, Re-Pitch warp, fades). MIDI clips get
+  transpose / velocity / reverse / invert / speed / duplicate-loop tools.
+- Drag and drop: regions move between compatible tracks, Alt-drag copies, fade
+  handles, library sounds and computer audio files drop onto lanes or the empty
+  area (new track). Per-clip immutable `assetId` audio.
+- Live collaboration via Supabase: share links, presence (avatars, cursors,
+  selections, playheads), per-entity Lamport LWW sync, shared audio chunks,
+  offline merge, personal undo. The migration is applied to project
+  `nfcgdbmasvoamdmykjwp` and was exercised as the `anon` role.
+- GitHub Pages workflow deploys `dist-pages` on push to `main`. Repository
+  variable `VITE_SUPABASE_URL` is set; **`VITE_SUPABASE_PUBLISHABLE_KEY` is not**
+  (the agent had no dashboard access). Until it is added, the Pages site shows
+  collaboration as not configured.
+- The database password was shared in chat; the owner should rotate it. It is
+  not stored anywhere in the repository.
 
-The implementation is desktop-first **web / PWA**, not a native executable or
-full commercial DAW. Do not infer automation, warping, comping, native plug-ins,
-cloud storage or independent audio sources per region from the timeline UI.
-The feature inventory is the scope authority.
+## Verification (macOS, Node 24)
 
-Extend project contracts and validators together. Keep offline / live rendering
-on the same graph. Preserve sample source phase on region splits and partial
-range export. Use the existing browser test's HMR-aware module resolution if
-inspecting Zustand from devtools; importing an unversioned dev module after HMR
-can instantiate a second store and invalidate tests.
+Typecheck, `npm run test:studio` (23 unit tests incl. merge convergence),
+smoke-verdict (40), existing library tests (59), studio browser check (20),
+`scripts/clip-browser-check.mjs` (13) and `scripts/collab-browser-check.mjs`
+(16, two pages, local backend) passed. Production Vercel build and the Pages
+build were smoke-tested with clean consoles. The full script suite keeps the
+same 16 template failures reproduced on the original HEAD.
 
-The audio graph uses random noise / reverb; compare decoded signal, duration,
-format and channel contracts rather than byte hashes. Library import tests use
-generated non-copyrighted sine audio. Browser QA must use an isolated named
-session, not the default browser shared with other work.
+## Known limits
 
-Known limits owned by the maintainer: no track-audio garbage collector, an
-in-memory (80 snapshot) undo history, full-buffer offline rendering, one source
-per audio track, and fixed 4/4. Mobile-specific UX remains deliberately deferred.
-Table-centric strict lineage assurance is not applicable; its explicit partial
-inventory must not be represented as warehouse-certified lineage.
+Same-region note edits merge at region level; no accounts / view-only links /
+revocation; Realtime untested end to end until the key is added; no
+pitch-preserving warp; no audio garbage collection; in-memory undo; fixed 4/4.
+Mobile-specific UX remains deferred. Lineage is partial with two recorded gaps.

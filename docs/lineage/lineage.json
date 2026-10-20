@@ -2,36 +2,130 @@
   "schema_version": 1,
   "application": {
     "name": "KILN desktop studio",
-    "summary": "Browser-local music creation: factory and user notes plus imported audio feed project tracks, the shared Web Audio mixer, and local MP3/WAV downloads. There are no application SQL transformations or warehouse tables.",
+    "summary": "Desktop-first music studio. Songs, the sound library and audio stay in the browser; live collaboration stores shared songs and their audio in Supabase Postgres through secret-gated functions. Static GitHub Pages and Vercel builds serve the same client.",
     "owner": "ActOfRod/Kiln repository maintainer",
-    "consumers": [],
+    "consumers": [
+      {
+        "id": "collab-session",
+        "path": "src/collab/session.ts",
+        "description": "Joins/rejoins rooms, resolves save conflicts and downloads shared audio through src/collab/supabase-backend.ts (kiln_get_room, kiln_get_asset_chunk, kiln_list_assets) and writes through kiln_create_room, kiln_save_room and kiln_put_asset_chunk.",
+        "reads": [
+          {
+            "table": "supabase.public.kiln_rooms",
+            "columns": [
+              "name",
+              "project",
+              "clocks",
+              "revision",
+              "updated_at"
+            ]
+          },
+          {
+            "table": "supabase.public.kiln_room_assets",
+            "columns": [
+              "asset_id",
+              "chunk_index",
+              "chunk_count",
+              "data"
+            ]
+          }
+        ],
+        "writes": [
+          {
+            "table": "supabase.public.kiln_rooms",
+            "columns": [
+              "id",
+              "secret_hash",
+              "name",
+              "project",
+              "clocks",
+              "revision",
+              "created_at",
+              "updated_at"
+            ]
+          },
+          {
+            "table": "supabase.public.kiln_room_assets",
+            "columns": [
+              "room_id",
+              "asset_id",
+              "chunk_index",
+              "chunk_count",
+              "data",
+              "created_at"
+            ]
+          }
+        ]
+      }
+    ],
     "integration": {
       "path": "src/components/studio/StudioApp.tsx",
       "route": "/ (Data Sources & Lineage footer dialog)",
       "navigation_label": "Data Sources & Lineage",
-      "access_control": "Public sanitized application structure only. No user project names, tags, audio, credentials or filesystem paths are exposed by the documentation view.",
+      "access_control": "In-app view shows sanitized structure only: no user songs, audio, link secrets, database credentials or row data. Database access for browsers is limited to SECURITY DEFINER functions that require the room secret; tables have RLS with no policies and no anon/authenticated grants.",
       "smoke_test": "scripts/studio-browser-check.mjs"
     }
   },
   "assurance": {
     "mode": "partial",
-    "environment": "Browser-local KILN; repository inspection, no warehouse",
-    "scope": "Studio project metadata, library object store, track-source object store, Web Audio rendering and file downloads. Platform auth/database helpers are not studio data consumers.",
-    "captured_at": "2026-10-19T18:42:31Z",
+    "environment": "Supabase project nfcgdbmasvoamdmykjwp (public schema) plus browser-local stores",
+    "scope": "kiln_rooms and kiln_room_assets (every column), their three writer functions, the browser RPC boundary and prior-state nodes, the collaboration consumer, and browser-local stores listed under browser_stores.",
+    "captured_at": "2026-10-20T13:03:16Z",
     "schema_snapshot": "docs/lineage/schema-snapshot.json",
     "limitations": [
-      "The table-centric validator has no browser-object-store applicability mode. Its table/Platinum/consumer/snapshot requirements are intentionally not satisfied with fabricated analytical datasets.",
-      "No warehouse schema snapshot or transformation SQL exists because the studio has no warehouse or application SQL.",
-      "Audio remains local and is not inspected in deployed users' browsers. Browser storage retention is not guaranteed."
+      "Live column metadata was captured read-only from Postgres information_schema into docs/lineage/evidence/supabase-schema-capture.json. The generator's snapshot origins are Unity Catalog, approved contract or example, so that capture is recorded as evidence rather than as a certified schema snapshot.",
+      "Deletes are not modeled as column mappings: kiln_purge_rooms (maintainer-only) removes idle rooms and ON DELETE CASCADE removes their audio chunks.",
+      "Realtime broadcast/presence messages are transient and never stored in Postgres; they are documented in docs/collaboration.md, not as tables.",
+      "The cloud path was verified at the database level as the anon role; end-to-end browser tests used the identical session code against the development backend because the publishable API key was not available to the agent.",
+      "Browser stores (localStorage / IndexedDB) are not tables and remain documented in browser_stores."
     ]
   },
   "review": {
-    "reviewed_at": "2026-10-19T19:17:20Z",
+    "reviewed_at": "2026-10-20T13:17:28Z",
     "reviewed_by": "GitHub Copilot",
-    "summary": "Final desktop studio review: 20 isolated browser checks cover atomic library metadata, independent audio copies, portable project restoration, audible stereo MP3/WAV, 128-bar rendering, region phase and movement, live graph continuity, actionable missing-source retries and lineage navigation. Data remains browser-local; no warehouse tables, columns or SQL exist. Non-tabular strict-certification gap remains explicit.",
-    "source_digest": "87d02dc309914fb44b45d1451d6e87f052e0eeff1d692533e107bc865dae2437"
+    "summary": "Reviewed final source after reverting incidental formatting: per-clip audio assets and Clip View, drag-and-drop, GitHub Pages build, and Supabase live collaboration. Lineage covers supabase.public.kiln_rooms and kiln_room_assets (all 14 columns, captured read-only from information_schema), their three SECURITY DEFINER writers (saved SQL = applied migration), the browser RPC boundary, prior-state nodes and the collaboration consumer; anon-role access tests, 23 unit tests and 49 browser workflow checks passed. Partial: generator lacks a Postgres snapshot origin and Realtime awaits the publishable key.",
+    "source_digest": "63232adfd641495977e9a6d6662faadd14189838a2ed4ded9a048fba2e5d6d5e"
   },
   "evidence": [
+    {
+      "id": "migration-sql",
+      "kind": "repository",
+      "reference": "Supabase migration applied to the project on 2026-10-20",
+      "path": "supabase/migrations/20261020130000_kiln_collaboration.sql",
+      "observed_at": "2026-10-20T13:03:16Z",
+      "summary": "Tables, RLS, revoked table grants and all kiln_* functions. Idempotent; applied through the Supabase pooler."
+    },
+    {
+      "id": "schema-capture",
+      "kind": "metadata_query",
+      "reference": "Read-only information_schema / pg_catalog capture",
+      "path": "docs/lineage/evidence/supabase-schema-capture.json",
+      "observed_at": "2026-10-20T13:03:16Z",
+      "summary": "Both tables, 14 columns with types/nullability, RLS enabled, zero anon/authenticated table grants, function security and anon EXECUTE rights."
+    },
+    {
+      "id": "anon-role-test",
+      "kind": "test",
+      "reference": "Transaction-scoped SET ROLE anon exercise, rolled back",
+      "observed_at": "2026-10-20T13:03:16Z",
+      "summary": "create/get/save/conflict/chunk upload/list/download succeeded with the secret; wrong secret, direct table reads, purge and helper calls were denied; no rows remained."
+    },
+    {
+      "id": "client-code",
+      "kind": "repository",
+      "reference": "Collaboration client",
+      "path": "src/collab/session.ts",
+      "observed_at": "2026-10-20T13:03:16Z",
+      "summary": "Creates the link secret, computes merge clocks, chunks audio and calls the Supabase functions via src/collab/supabase-backend.ts."
+    },
+    {
+      "id": "collab-tests",
+      "kind": "test",
+      "reference": "scripts/collab-browser-check.mjs and src/collab/doc.test.ts",
+      "path": "scripts/collab-browser-check.mjs",
+      "observed_at": "2026-10-20T13:03:16Z",
+      "summary": "Two-person browser check (16 checks) and convergence unit tests for the merge model."
+    },
     {
       "id": "project-contract",
       "kind": "repository_inspection",
@@ -65,15 +159,1132 @@
       "summary": "20 isolated browser checks verified library search/favorites and concurrent metadata updates, project-audio copy and backup roundtrip, reload persistence, decoded non-silent stereo MP3/WAV, 128-bar rendering, region movement and phase-preserving splitting, live graph continuity, missing-source retries and visible lineage navigation."
     }
   ],
-  "tables": [],
-  "transformations": [],
+  "tables": [
+    {
+      "id": "kiln_browser.rpc.request",
+      "layer": "external",
+      "kind": "external",
+      "description": "Arguments the KILN browser sends to the public Supabase RPC functions with the publishable key.",
+      "owner": "ActOfRod/Kiln repository maintainer",
+      "grain": "One RPC call.",
+      "refresh": "Per user action; edits are debounced ~0.9 s before saving.",
+      "primary_key": [],
+      "boundary": {
+        "system": "KILN browser client (src/collab)",
+        "reason": "Values originate from the user's song, browser randomness and the collaboration runtime; earlier provenance is the browser-local data documented under browser_stores.",
+        "owner": "ActOfRod/Kiln repository maintainer",
+        "evidence": [
+          "migration-sql",
+          "client-code"
+        ]
+      },
+      "columns": [
+        {
+          "name": "p_room",
+          "data_type": "uuid",
+          "nullable": false,
+          "description": "Room ID from the share link fragment.",
+          "classification": "capability identifier",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Parsed from the #room= link fragment by src/collab/session.ts.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "client-code"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "p_secret",
+          "data_type": "text",
+          "nullable": false,
+          "description": "Random 256-bit link secret (base64url). Never stored; only its SHA-256 hash is.",
+          "classification": "secret",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "crypto.getRandomValues in src/collab/session.ts randomSecret().",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "client-code"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "p_name",
+          "data_type": "text",
+          "nullable": false,
+          "description": "Song name when a room is created.",
+          "classification": "user content",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Project.name from the browser song.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "client-code"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "p_project",
+          "data_type": "jsonb",
+          "nullable": false,
+          "description": "Whole validated song snapshot (Project JSON, no audio bytes).",
+          "classification": "user content",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "useStudio project, validated by projectSchema before use.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "client-code"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "p_clocks",
+          "data_type": "jsonb",
+          "nullable": false,
+          "description": "Per-entity Lamport stamps {key: {c, a}} for last-writer-wins merging.",
+          "classification": "system metadata",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Maintained by src/collab/session.ts from local and received edits.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "client-code"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "p_expected_revision",
+          "data_type": "bigint",
+          "nullable": false,
+          "description": "Revision the client last loaded; enables optimistic concurrency.",
+          "classification": "system metadata",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Last revision returned by kiln_get_room / kiln_save_room.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "client-code"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "p_asset",
+          "data_type": "text",
+          "nullable": false,
+          "description": "Immutable audio asset ID (asset-*, or a legacy track ID).",
+          "classification": "identifier",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "ArrangeClip.assetId or Track.id from src/studio/audio-clip.ts requiredAssets().",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "client-code"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "p_index",
+          "data_type": "integer",
+          "nullable": false,
+          "description": "Zero-based chunk number.",
+          "classification": "system metadata",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Upload loop in syncAssets().",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "client-code"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "p_count",
+          "data_type": "integer",
+          "nullable": false,
+          "description": "Total chunks for the asset (512 KiB each, max 120).",
+          "classification": "system metadata",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "ceil(bytes / 524288) in syncAssets().",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "client-code"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "p_data",
+          "data_type": "text",
+          "nullable": false,
+          "description": "Base64 of one chunk of the original encoded audio file.",
+          "classification": "user content (audio)",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "IndexedDB kiln-samples.buffers bytes for the asset.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "client-code"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "supabase.public.kiln_rooms@prior",
+      "layer": "external",
+      "kind": "external",
+      "description": "The kiln_rooms row as it was immediately before a save or access check (prior-state version node).",
+      "owner": "ActOfRod/Kiln repository maintainer",
+      "grain": "One room before the statement.",
+      "refresh": "State boundary of each save.",
+      "primary_key": [
+        "id"
+      ],
+      "boundary": {
+        "system": "supabase.public.kiln_rooms (previous version)",
+        "reason": "Represents prior state so the save's self-read does not create a cycle; its origins are the create-room and save-room transformations.",
+        "owner": "ActOfRod/Kiln repository maintainer",
+        "evidence": [
+          "migration-sql",
+          "schema-capture"
+        ]
+      },
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "uuid",
+          "nullable": false,
+          "description": "Room ID before the save.",
+          "classification": "identifier",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Existing kiln_rooms row read inside kiln_save_room / kiln_assert_access.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "secret_hash",
+          "data_type": "text",
+          "nullable": false,
+          "description": "Stored link-secret hash compared for access.",
+          "classification": "secret hash",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Existing kiln_rooms row.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "name",
+          "data_type": "text",
+          "nullable": false,
+          "description": "Previous name, kept when the new snapshot has no name.",
+          "classification": "user content",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Existing kiln_rooms row.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "revision",
+          "data_type": "bigint",
+          "nullable": false,
+          "description": "Previous revision, incremented and compared.",
+          "classification": "system metadata",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Existing kiln_rooms row.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "supabase.public.kiln_room_assets@prior",
+      "layer": "external",
+      "kind": "external",
+      "description": "Previously stored asset chunks read only to enforce the per-room audio quota.",
+      "owner": "ActOfRod/Kiln repository maintainer",
+      "grain": "One stored chunk before the statement.",
+      "refresh": "State boundary of each upload.",
+      "primary_key": [
+        "room_id"
+      ],
+      "boundary": {
+        "system": "supabase.public.kiln_room_assets (previous version)",
+        "reason": "Prior-state node for the quota self-read; origins are put-asset-chunk.",
+        "owner": "ActOfRod/Kiln repository maintainer",
+        "evidence": [
+          "migration-sql",
+          "schema-capture"
+        ]
+      },
+      "columns": [
+        {
+          "name": "room_id",
+          "data_type": "uuid",
+          "nullable": false,
+          "description": "Room of previously stored chunks.",
+          "classification": "identifier",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Existing kiln_room_assets rows read for the 300 MB quota.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "data",
+          "data_type": "bytea",
+          "nullable": false,
+          "description": "Previously stored chunk bytes (only their length is used).",
+          "classification": "user content (audio)",
+          "mappings": [
+            {
+              "transformation": null,
+              "kind": "source",
+              "expression": "Existing kiln_room_assets rows.",
+              "sources": [],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "supabase.public.kiln_rooms",
+      "layer": "platinum",
+      "kind": "table",
+      "description": "Application-serving state for shared songs: the latest merged snapshot plus merge clocks. Read by every collaborator when joining, rejoining or resolving a save conflict.",
+      "owner": "ActOfRod/Kiln repository maintainer",
+      "grain": "One shared song (room).",
+      "refresh": "Upsert-style conditional updates on every debounced save; rows removed only by kiln_purge_rooms or manual maintenance.",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "uuid",
+          "nullable": false,
+          "description": "Room identifier embedded in the share link.",
+          "classification": "capability identifier",
+          "mappings": [
+            {
+              "transformation": "create-room",
+              "kind": "system",
+              "expression": "gen_random_uuid() column default on insert.",
+              "sources": [],
+              "row_sources": [
+                "kiln_browser.rpc.request"
+              ],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "secret_hash",
+          "data_type": "text",
+          "nullable": false,
+          "description": "Hex SHA-256 of the link secret; the secret itself is not stored.",
+          "classification": "secret hash",
+          "mappings": [
+            {
+              "transformation": "create-room",
+              "kind": "derived",
+              "expression": "encode(sha256(convert_to(p_secret, 'UTF8')), 'hex')",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_secret",
+                  "role": "value"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "name",
+          "data_type": "text",
+          "nullable": false,
+          "description": "Latest song name, max 100 characters.",
+          "classification": "user content",
+          "mappings": [
+            {
+              "transformation": "create-room",
+              "kind": "derived",
+              "expression": "left(coalesce(nullif(btrim(p_name), ''), 'Untitled'), 100)",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_name",
+                  "role": "value"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            },
+            {
+              "transformation": "save-room",
+              "kind": "derived",
+              "expression": "left(coalesce(nullif(btrim(p_project ->> 'name'), ''), prior.name), 100)",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_project",
+                  "role": "value"
+                },
+                {
+                  "table": "supabase.public.kiln_rooms@prior",
+                  "column": "name",
+                  "role": "value"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "project",
+          "data_type": "jsonb",
+          "nullable": false,
+          "description": "Latest merged song snapshot (tracks, regions, clips, mixer; no audio bytes). Max 5 MB.",
+          "classification": "user content",
+          "mappings": [
+            {
+              "transformation": "create-room",
+              "kind": "derived",
+              "expression": "p_project after object/size validation",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_project",
+                  "role": "value"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            },
+            {
+              "transformation": "save-room",
+              "kind": "derived",
+              "expression": "p_project after validation, only when revision = p_expected_revision",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_project",
+                  "role": "value"
+                },
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_expected_revision",
+                  "role": "filter"
+                },
+                {
+                  "table": "supabase.public.kiln_rooms@prior",
+                  "column": "revision",
+                  "role": "filter"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "clocks",
+          "data_type": "jsonb",
+          "nullable": false,
+          "description": "Per-entity Lamport stamps used by every client to merge concurrent edits.",
+          "classification": "system metadata",
+          "mappings": [
+            {
+              "transformation": "create-room",
+              "kind": "derived",
+              "expression": "coalesce(p_clocks, '{}')",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_clocks",
+                  "role": "value"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            },
+            {
+              "transformation": "save-room",
+              "kind": "derived",
+              "expression": "p_clocks, only when revision = p_expected_revision",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_clocks",
+                  "role": "value"
+                },
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_expected_revision",
+                  "role": "filter"
+                },
+                {
+                  "table": "supabase.public.kiln_rooms@prior",
+                  "column": "revision",
+                  "role": "filter"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "revision",
+          "data_type": "bigint",
+          "nullable": false,
+          "description": "Monotonic save counter for optimistic concurrency.",
+          "classification": "system metadata",
+          "mappings": [
+            {
+              "transformation": "create-room",
+              "kind": "literal",
+              "expression": "Column default 1 on insert.",
+              "sources": [],
+              "row_sources": [
+                "kiln_browser.rpc.request"
+              ],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            },
+            {
+              "transformation": "save-room",
+              "kind": "derived",
+              "expression": "prior.revision + 1 where prior.revision = p_expected_revision; otherwise no update (returns null)",
+              "sources": [
+                {
+                  "table": "supabase.public.kiln_rooms@prior",
+                  "column": "revision",
+                  "role": "value"
+                },
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_expected_revision",
+                  "role": "filter"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "created_at",
+          "data_type": "timestamp with time zone",
+          "nullable": false,
+          "description": "Room creation time.",
+          "classification": "system timestamp",
+          "mappings": [
+            {
+              "transformation": "create-room",
+              "kind": "system",
+              "expression": "now() column default.",
+              "sources": [],
+              "row_sources": [
+                "kiln_browser.rpc.request"
+              ],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "updated_at",
+          "data_type": "timestamp with time zone",
+          "nullable": false,
+          "description": "Last successful save (used by the maintainer purge function).",
+          "classification": "system timestamp",
+          "mappings": [
+            {
+              "transformation": "create-room",
+              "kind": "system",
+              "expression": "now() column default.",
+              "sources": [],
+              "row_sources": [
+                "kiln_browser.rpc.request"
+              ],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            },
+            {
+              "transformation": "save-room",
+              "kind": "system",
+              "expression": "now() on a successful conditional update.",
+              "sources": [],
+              "row_sources": [
+                "kiln_browser.rpc.request",
+                "supabase.public.kiln_rooms@prior"
+              ],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "supabase.public.kiln_room_assets",
+      "layer": "platinum",
+      "kind": "table",
+      "description": "Original audio files referenced by shared songs, chunked so collaborators can download and play them.",
+      "owner": "ActOfRod/Kiln repository maintainer",
+      "grain": "One chunk of one immutable asset in one room.",
+      "refresh": "Insert-only (ON CONFLICT DO NOTHING); deleted with the room.",
+      "primary_key": [
+        "room_id",
+        "asset_id",
+        "chunk_index"
+      ],
+      "columns": [
+        {
+          "name": "room_id",
+          "data_type": "uuid",
+          "nullable": false,
+          "description": "Owning room; ON DELETE CASCADE.",
+          "classification": "identifier",
+          "mappings": [
+            {
+              "transformation": "put-asset-chunk",
+              "kind": "derived",
+              "expression": "p_room after kiln_assert_access",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_room",
+                  "role": "value"
+                },
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_secret",
+                  "role": "control"
+                },
+                {
+                  "table": "supabase.public.kiln_rooms@prior",
+                  "column": "id",
+                  "role": "filter"
+                },
+                {
+                  "table": "supabase.public.kiln_rooms@prior",
+                  "column": "secret_hash",
+                  "role": "filter"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "asset_id",
+          "data_type": "text",
+          "nullable": false,
+          "description": "Immutable audio asset ID ([A-Za-z0-9_-]{1,100}).",
+          "classification": "identifier",
+          "mappings": [
+            {
+              "transformation": "put-asset-chunk",
+              "kind": "derived",
+              "expression": "p_asset",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_asset",
+                  "role": "value"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "chunk_index",
+          "data_type": "integer",
+          "nullable": false,
+          "description": "Zero-based chunk order.",
+          "classification": "system metadata",
+          "mappings": [
+            {
+              "transformation": "put-asset-chunk",
+              "kind": "derived",
+              "expression": "p_index (0 <= index < count)",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_index",
+                  "role": "value"
+                },
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_count",
+                  "role": "control"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "chunk_count",
+          "data_type": "integer",
+          "nullable": false,
+          "description": "Total chunks; an asset is complete when count(*) = chunk_count.",
+          "classification": "system metadata",
+          "mappings": [
+            {
+              "transformation": "put-asset-chunk",
+              "kind": "derived",
+              "expression": "p_count (1..120)",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_count",
+                  "role": "value"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "data",
+          "data_type": "bytea",
+          "nullable": false,
+          "description": "Up to 1 MiB of the original encoded audio file.",
+          "classification": "user content (audio)",
+          "mappings": [
+            {
+              "transformation": "put-asset-chunk",
+              "kind": "derived",
+              "expression": "decode(p_data, 'base64'); rejected when the room's stored bytes + this chunk exceed 300 MB",
+              "sources": [
+                {
+                  "table": "kiln_browser.rpc.request",
+                  "column": "p_data",
+                  "role": "value"
+                },
+                {
+                  "table": "supabase.public.kiln_room_assets@prior",
+                  "column": "data",
+                  "role": "control"
+                },
+                {
+                  "table": "supabase.public.kiln_room_assets@prior",
+                  "column": "room_id",
+                  "role": "filter"
+                }
+              ],
+              "row_sources": [],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "created_at",
+          "data_type": "timestamp with time zone",
+          "nullable": false,
+          "description": "Upload time.",
+          "classification": "system timestamp",
+          "mappings": [
+            {
+              "transformation": "put-asset-chunk",
+              "kind": "system",
+              "expression": "now() column default.",
+              "sources": [],
+              "row_sources": [
+                "kiln_browser.rpc.request"
+              ],
+              "status": "verified",
+              "evidence": [
+                "migration-sql",
+                "schema-capture",
+                "anon-role-test"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "transformations": [
+    {
+      "id": "create-room",
+      "target": "supabase.public.kiln_rooms",
+      "inputs": [
+        "kiln_browser.rpc.request"
+      ],
+      "output_columns": [
+        "id",
+        "secret_hash",
+        "name",
+        "project",
+        "clocks",
+        "revision",
+        "created_at",
+        "updated_at"
+      ],
+      "sql_path": "supabase/migrations/20261020130000_kiln_collaboration.sql",
+      "sql_kind": "executable",
+      "implementation_path": "supabase/migrations/20261020130000_kiln_collaboration.sql",
+      "operation": "insert",
+      "write_behavior": "public.kiln_create_room: validates secret length (32-200) and song size (<= 5 MB), inserts one row, returns the new room ID.",
+      "rationale": "Capability-link sharing without accounts: whoever holds the link can edit, and only a hash of the secret is stored.",
+      "row_dependencies": [
+        {
+          "table": "kiln_browser.rpc.request",
+          "column": "p_secret",
+          "role": "control"
+        },
+        {
+          "table": "kiln_browser.rpc.request",
+          "column": "p_project",
+          "role": "control"
+        }
+      ],
+      "status": "verified",
+      "evidence": [
+        "migration-sql",
+        "schema-capture",
+        "anon-role-test"
+      ]
+    },
+    {
+      "id": "save-room",
+      "target": "supabase.public.kiln_rooms",
+      "inputs": [
+        "kiln_browser.rpc.request",
+        "supabase.public.kiln_rooms@prior"
+      ],
+      "output_columns": [
+        "name",
+        "project",
+        "clocks",
+        "revision",
+        "updated_at"
+      ],
+      "sql_path": "supabase/migrations/20261020130000_kiln_collaboration.sql",
+      "sql_kind": "executable",
+      "implementation_path": "supabase/migrations/20261020130000_kiln_collaboration.sql",
+      "operation": "update",
+      "write_behavior": "public.kiln_save_room: after kiln_assert_access, conditionally updates project, clocks, name, revision and updated_at where revision = p_expected_revision. id, secret_hash and created_at are preserved. Returns null on conflict; the client merges entity-by-entity and retries.",
+      "rationale": "Optimistic concurrency plus per-entity clocks lets simultaneous editors converge without a server-side merge or lost work.",
+      "row_dependencies": [
+        {
+          "table": "supabase.public.kiln_rooms@prior",
+          "column": "id",
+          "role": "filter"
+        },
+        {
+          "table": "supabase.public.kiln_rooms@prior",
+          "column": "secret_hash",
+          "role": "filter"
+        },
+        {
+          "table": "supabase.public.kiln_rooms@prior",
+          "column": "revision",
+          "role": "filter"
+        },
+        {
+          "table": "kiln_browser.rpc.request",
+          "column": "p_room",
+          "role": "filter"
+        },
+        {
+          "table": "kiln_browser.rpc.request",
+          "column": "p_secret",
+          "role": "filter"
+        },
+        {
+          "table": "kiln_browser.rpc.request",
+          "column": "p_expected_revision",
+          "role": "filter"
+        }
+      ],
+      "status": "verified",
+      "evidence": [
+        "migration-sql",
+        "schema-capture",
+        "anon-role-test"
+      ]
+    },
+    {
+      "id": "put-asset-chunk",
+      "target": "supabase.public.kiln_room_assets",
+      "inputs": [
+        "kiln_browser.rpc.request",
+        "supabase.public.kiln_rooms@prior",
+        "supabase.public.kiln_room_assets@prior"
+      ],
+      "output_columns": [
+        "room_id",
+        "asset_id",
+        "chunk_index",
+        "chunk_count",
+        "data",
+        "created_at"
+      ],
+      "sql_path": "supabase/migrations/20261020130000_kiln_collaboration.sql",
+      "sql_kind": "executable",
+      "implementation_path": "supabase/migrations/20261020130000_kiln_collaboration.sql",
+      "operation": "insert",
+      "write_behavior": "public.kiln_put_asset_chunk: after kiln_assert_access and the 300 MB per-room quota check, inserts one chunk; duplicates are ignored (assets are immutable).",
+      "rationale": "Chunking keeps each request small enough for the REST gateway while sharing original-quality audio.",
+      "row_dependencies": [
+        {
+          "table": "supabase.public.kiln_rooms@prior",
+          "column": "id",
+          "role": "filter"
+        },
+        {
+          "table": "supabase.public.kiln_rooms@prior",
+          "column": "secret_hash",
+          "role": "filter"
+        },
+        {
+          "table": "kiln_browser.rpc.request",
+          "column": "p_secret",
+          "role": "filter"
+        },
+        {
+          "table": "supabase.public.kiln_room_assets@prior",
+          "column": "room_id",
+          "role": "filter"
+        }
+      ],
+      "status": "verified",
+      "evidence": [
+        "migration-sql",
+        "schema-capture",
+        "anon-role-test"
+      ]
+    }
+  ],
   "gaps": [
     {
-      "id": "non-tabular-applicability",
-      "subject": "Table-centric strict lineage assurance",
-      "reason": "This application uses browser object stores, not relational or analytical tables. There is no real Platinum dataset, SQL transformation, warehouse schema snapshot or table-access consumer to certify.",
+      "id": "snapshot-origin",
+      "subject": "Strict schema reconciliation for Supabase tables",
+      "reason": "The lineage generator only accepts Unity Catalog, approved-contract or example snapshots. The live Postgres capture exists as evidence but cannot be presented as one of those origins without misrepresenting it.",
       "owner": "Repository maintainer and lineage-tool maintainer",
-      "next_action": "Define an approved non-tabular applicability contract before requesting strict table-lineage certification. Until then retain partial assurance, documented browser flow and executable application tests; do not invent tables or SQL."
+      "next_action": "Add a Postgres information_schema origin to the generator (or have the owner attest an approved contract), then promote the capture to docs/lineage/schema-snapshot.json and re-run check."
+    },
+    {
+      "id": "e2e-cloud-test",
+      "subject": "End-to-end browser test against Supabase Realtime",
+      "reason": "The project's publishable key was not available to the agent, so Realtime broadcast/presence were not exercised from a browser.",
+      "owner": "Repository maintainer",
+      "next_action": "Add VITE_SUPABASE_PUBLISHABLE_KEY as a repository variable, deploy, and run the two-person flow in docs/runbook.md against the Pages site."
     }
   ],
   "browser_stores": [
@@ -118,7 +1329,7 @@
     {
       "id": "IndexedDB/kiln-samples/buffers",
       "fields": [
-        "trackId key",
+        "asset key (asset-* or legacy track ID)",
         "original encoded audio ArrayBuffer"
       ],
       "writer": "src/studio/samples.ts",
@@ -127,7 +1338,33 @@
         "store.ts portable export"
       ],
       "origin": "Copied library source, direct file/microphone input, or validated portable audio",
-      "notes": "Decoded audio and waveform peaks are transient in-memory derivatives. One source per audio track."
+      "notes": "Immutable per-region audio assets plus legacy track-level sources. Shared-room audio is downloaded here. Decoded audio and waveform peaks are in-memory derivatives."
+    },
+    {
+      "id": "localStorage/kiln-collab-name",
+      "fields": [
+        "display name"
+      ],
+      "writer": "src/collab/session.ts",
+      "readers": [
+        "ShareDialog",
+        "presence"
+      ],
+      "origin": "Typed by the user",
+      "notes": "Shown to collaborators in presence; never sent to Postgres."
+    },
+    {
+      "id": "URL fragment #room=<id>.<secret>",
+      "fields": [
+        "room id",
+        "link secret"
+      ],
+      "writer": "src/collab/session.ts",
+      "readers": [
+        "initCollab"
+      ],
+      "origin": "Share link",
+      "notes": "Fragments are not sent to web servers; the secret is sent only in TLS RPC bodies."
     }
   ]
 }

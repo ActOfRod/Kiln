@@ -24,12 +24,50 @@ out of 197 tests, identically on the original HEAD and this change. Failures
 depend on absent ignored `.grok` assets / app-env configuration and template
 branding fixtures. Its `&&` prevents the TypeScript library stage from running;
 run the explicit library test command from `package.json` separately (59 pass).
-These are not waived studio failures: studio tests (9), smoke-verdict tests (40)
-and the isolated studio browser checks (20) must pass.
+These are not waived studio failures: studio and collaboration unit tests (23), smoke-verdict tests (40),
+the isolated studio browser checks (20), the clip / drag checks (13) and the
+two-person collaboration checks (16) must pass. The agent-browser CLI used by
+the studio check occasionally drops its CDP connection on macOS; rerun once.
 
 Deploy the branch through the repository's normal Vercel flow. Roll back the
 deployment to the prior version if needed. Download a project before changing
 storage schemas; do not clear users' browser storage as a migration.
+
+## GitHub Pages
+
+`.github/workflows/pages.yml` builds `npm run build:pages` (static client in
+`dist-pages/`, base `/<repo>/`) and deploys on every push to `main` (merged PRs)
+or manual dispatch. Site: <https://actofrod.github.io/Kiln/>. Preview locally
+with `npm run build:pages && npm run preview:pages` (port 8082, path `/Kiln/`).
+The `github-pages` environment only accepts `main`.
+
+## Live collaboration (Supabase)
+
+1. Schema: `supabase/migrations/20261020130000_kiln_collaboration.sql`
+   (idempotent). It was applied to project `nfcgdbmasvoamdmykjwp` on
+   2026-10-20. Re-apply with `supabase link --project-ref nfcgdbmasvoamdmykjwp`
+   then `supabase db push`, or run the file in the SQL editor.
+2. Browser configuration (public, not secret): repository **variables**
+   `VITE_SUPABASE_URL` (set) and `VITE_SUPABASE_PUBLISHABLE_KEY` (Dashboard →
+   Project Settings → API Keys → publishable / anon key). Without the key the
+   Pages site shows "Live collaboration isn't configured". For local cloud
+   testing put both in an untracked `.env.local`.
+3. Never put the database password or a service-role key in the app, repo or
+   workflow. **Rotate the database password** if it has been shared in chat or
+   tickets (Dashboard → Database → Reset password).
+4. Realtime must allow public channels (Supabase default). Rooms are secured by
+   the secret-derived channel name and the secret-checking functions.
+5. Cleanup: `select public.kiln_purge_rooms(interval '180 days');` (maintainer
+   role only) deletes idle rooms and their audio.
+6. Two-person smoke test after deploy: open the site, Share, open the link in a
+   private window, check avatars, cursor, a region edit, an audio drag-in and
+   leave / rejoin.
+
+`node scripts/collab-browser-check.mjs` runs the same two-person flow in dev
+against the local BroadcastChannel backend (used automatically when no
+publishable key is configured in dev). `node scripts/clip-browser-check.mjs`
+covers Clip View, drag-and-drop, fades, rendering of clip settings and portable
+per-clip audio.
 
 ## Failure diagnosis
 
@@ -45,6 +83,11 @@ storage schemas; do not clear users' browser storage as a migration.
 | Short / long audio after tempo edit | No time stretching exists; original-rate source and musical region lengths are different contracts                                 |
 | Deleted library sound still plays   | Expected: project audio is an independent copy                                                                                     |
 | White production page               | Check actual built preview and JS module responses; do not rely on a dev-only render                                               |
+| Pages site 404 / unstyled           | Confirm the workflow ran on `main`, `PAGES_BASE` matches the repository name, and assets load under `/Kiln/`                       |
+| "Collaboration isn't configured"    | Add the `VITE_SUPABASE_PUBLISHABLE_KEY` repository variable and redeploy                                                           |
+| Share link "not found or invalid"   | Link truncated or room purged; the secret after `#` must be complete                                                               |
+| Live shows Offline                  | Network / Realtime outage; keep working — edits merge when the connection returns                                                  |
+| Collaborator can't hear new audio   | Upload still running (panel shows "Sharing audio…"), file > 60 MB, or room over its 300 MB audio limit                             |
 
 ## Ownership and data maintenance
 
@@ -58,8 +101,11 @@ currently an audio garbage collection mechanism. Long-running use can accumulate
 orphaned track buffers. A future cleanup feature must account for undo, current
 projects and portable backups before removing any data.
 
-The table-centric lineage validator cannot certify a browser-only object-store
-app without fabricating tables. The partial manifest records that applicability
-gap explicitly. Do not invent warehouse tables / SQL or weaken the validator.
-Review source changes, regenerate the technical inventory and retain the
-in-app local-flow explanation when changing storage or audio behavior.
+Lineage now covers the two Supabase tables, their three writer functions
+(saved SQL is the migration itself) and the collaboration consumer; browser
+stores stay in `browser_stores`. The strict gate remains partial for two
+recorded gaps: the generator has no Postgres snapshot origin (the live capture
+is evidence in `docs/lineage/evidence/`), and the Realtime path still needs an
+end-to-end test once the publishable key is configured. Do not invent tables or
+relabel the capture to pass. After any schema change: re-capture metadata
+read-only, update `lineage.json`, then `lineage.py review`, `render`, `check`.
