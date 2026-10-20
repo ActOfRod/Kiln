@@ -41,6 +41,11 @@ or manual dispatch. Site: <https://actofrod.github.io/Kiln/>. Preview locally
 with `npm run build:pages && npm run preview:pages` (port 8082, path `/Kiln/`).
 The `github-pages` environment only accepts `main`.
 
+CI installs with Node 22 (npm 10) using `npm ci`. npm 11 drops some
+optional-peer entries that npm 10 requires, which breaks `npm ci` in CI. After
+changing dependencies, run `npx -y npm@10 install --package-lock-only` and
+confirm `npx -y npm@10 ci --dry-run` succeeds before merging.
+
 ## Live collaboration (Supabase)
 
 1. Schema: `supabase/migrations/20261020130000_kiln_collaboration.sql`
