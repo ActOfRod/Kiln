@@ -1,5 +1,7 @@
 import type { Follow, LaunchState, Note, Project, Track } from "./types";
 import { clamp } from "./theory";
+import { encodeMp3, type ExportOptions } from "./export";
+import { regionOffset } from "./regions";
 import { computePeaks, idbDel, idbGet, idbPut, sampleBank, samplePeaks } from "./samples";
 import {
   buildGraph,
@@ -101,11 +103,32 @@ class Performer {
   rebuild() {
     const ids = this.snap.project.tracks.map((t) => t.id).join("|");
     if (ids === this.builtIds) return;
-    this.stopVoices();
-    for (const graph of this.graphs.values()) graph.input.disconnect();
-    this.graphs.clear();
+    const active = new Set(this.snap.project.tracks.map((track) => track.id));
+    for (const [id, graph] of this.graphs) {
+      if (active.has(id)) continue;
+      for (const node of [
+        graph.input,
+        graph.drive,
+        graph.filter,
+        graph.delay,
+        graph.delayFb,
+        graph.delayMix,
+        graph.reverbMix,
+        graph.gain,
+        graph.panner,
+        graph.analyser,
+      ])
+        node.disconnect();
+      this.graphs.delete(id);
+      for (const [key, voice] of this.previews) {
+        if (!key.startsWith(`${id}:`)) continue;
+        this.releasePreview(key, voice, this.ctx.currentTime);
+        this.previews.delete(key);
+      }
+    }
     for (const track of this.snap.project.tracks) {
-      this.graphs.set(track.id, buildGraph(this.ctx, this.master, this.impulse));
+      if (!this.graphs.has(track.id))
+        this.graphs.set(track.id, buildGraph(this.ctx, this.master, this.impulse));
     }
     this.builtIds = ids;
   }
@@ -121,7 +144,9 @@ class Performer {
       const audible = !track.mute && (!anySolo || track.solo);
       const vol = audible ? track.volume ** 1.45 : 0;
       const cutoff =
-        track.kind === "drums" || track.kind === "sample" ? clamp(track.device.cutoff, 80, 16000) : 15000;
+        track.kind === "drums" || track.kind === "sample"
+          ? clamp(track.device.cutoff, 80, 16000)
+          : 15000;
       if (immediate || this.offline) {
         graph.gain.gain.value = vol;
         graph.panner.pan.value = track.pan;
@@ -134,8 +159,16 @@ class Performer {
         graph.gain.gain.setTargetAtTime(vol, now, 0.02);
         graph.panner.pan.setTargetAtTime(track.pan, now, 0.02);
         graph.filter.frequency.setTargetAtTime(cutoff, now, 0.02);
-        graph.filter.Q.setTargetAtTime(track.kind === "drums" ? track.device.resonance : 0.7, now, 0.02);
-        graph.delay.delayTime.setTargetAtTime(Math.min(1.5, (60 / this.bpm) * track.device.delayDivision), now, 0.03);
+        graph.filter.Q.setTargetAtTime(
+          track.kind === "drums" ? track.device.resonance : 0.7,
+          now,
+          0.02,
+        );
+        graph.delay.delayTime.setTargetAtTime(
+          Math.min(1.5, (60 / this.bpm) * track.device.delayDivision),
+          now,
+          0.03,
+        );
         graph.delayMix.gain.setTargetAtTime(track.device.delayMix, now, 0.02);
         graph.reverbMix.gain.setTargetAtTime(track.device.reverb, now, 0.02);
       }
@@ -247,7 +280,13 @@ class Performer {
     if (!launch || to <= from) return;
     const q = launch.launchBeat;
     if (launch.previous && from < q) {
-      this.playClip(track, launch.previous.clipIndex, launch.previous.launchBeat, from, Math.min(to, q));
+      this.playClip(
+        track,
+        launch.previous.clipIndex,
+        launch.previous.launchBeat,
+        from,
+        Math.min(to, q),
+      );
     }
     if (launch.clipIndex >= 0 && to > q) {
       this.playClip(track, launch.clipIndex, q, Math.max(from, q), to);
@@ -269,29 +308,53 @@ class Performer {
       const a = Math.max(from, clip.start);
       const b = Math.min(to, end);
       if (b <= a) continue;
-      this.schedulePattern(track, clip.notes, clip.patternLength, clip.start, a, b);
+      this.schedulePattern(
+        track,
+        clip.notes,
+        clip.patternLength,
+        clip.start - regionOffset(clip),
+        a,
+        b,
+        clip.start,
+        end,
+      );
     }
   }
 
-  schedulePattern(track: Track, notes: Note[], patternLength: number, origin: number, from: number, to: number) {
+  schedulePattern(
+    track: Track,
+    notes: Note[],
+    patternLength: number,
+    origin: number,
+    from: number,
+    to: number,
+    regionStart = origin,
+    regionEnd = Infinity,
+  ) {
     const len = Math.max(0.25, patternLength);
     let i = Math.floor((from - origin) / len) - 1;
     const last = Math.floor((to - origin) / len) + 1;
-    if (last - i > 128) return;
+    if (last - i > 8192) throw new Error("Pattern repetition exceeds the supported song length.");
     for (; i <= last; i++) {
       const base = origin + i * len;
       if (base + len <= from || base >= to) continue;
       if (track.kind === "sample") {
-        if (base >= from && base < to && base >= origin - 1e-6) this.playSample(track, base, len);
+        const start = Math.max(base, regionStart, this.originBeat);
+        const end = Math.min(base + len, regionEnd);
+        if (start >= from && start < to && end > start)
+          this.playSample(track, start, end - start, start - base);
         continue;
       }
       for (const note of notes) {
         if (note.start < 0 || note.start >= len) continue;
         const beat = base + note.start;
-        if (beat < from || beat >= to || beat < origin - 1e-6) continue;
-        const t = this.beatToTime(beat) + this.swingSec(note.start);
+        const start = Math.max(beat, regionStart, this.originBeat);
+        const end = Math.min(beat + note.duration, regionEnd);
+        if (track.kind === "drums" && start > beat + 1e-6) continue;
+        if (start < from || start >= to || end <= start || beat < origin - 1e-6) continue;
+        const t = this.beatToTime(start) + this.swingSec(note.start);
         if (!this.offline && t < this.ctx.currentTime - 0.03) continue;
-        this.fire(track, note, t);
+        this.fire(track, { ...note, duration: end - start }, t);
       }
     }
   }
@@ -310,18 +373,22 @@ class Performer {
     if (!this.audible(track)) return;
     const graph = this.graphs.get(track.id);
     if (!graph) return;
-    try {
-      const nodes =
-        track.kind === "drums"
-          ? triggerDrum(this.ctx, graph.input, note.pitch, time, note.velocity)
-          : triggerTonal(this.ctx, graph.input, track, note.pitch, time, note.duration, note.velocity);
-      for (const node of nodes) this.keep(node);
-    } catch {
-      /* skip a bad voice rather than halt the clock */
-    }
+    const nodes =
+      track.kind === "drums"
+        ? triggerDrum(this.ctx, graph.input, note.pitch, time, note.velocity)
+        : triggerTonal(
+            this.ctx,
+            graph.input,
+            track,
+            note.pitch,
+            time,
+            note.duration * (60 / this.bpm),
+            note.velocity,
+          );
+    for (const node of nodes) this.keep(node);
   }
 
-  playSample(track: Track, beat: number, patternBeats: number) {
+  playSample(track: Track, beat: number, patternBeats: number, elapsedBeats = 0) {
     const buffer = sampleBank.get(track.id);
     const graph = this.graphs.get(track.id);
     if (!buffer || !graph || !this.audible(track)) return;
@@ -332,7 +399,15 @@ class Performer {
       track.device.sampleEnd > 0.05
         ? clamp(track.device.sampleEnd, offset + 0.05, buffer.duration)
         : buffer.duration;
-    const playDur = Math.max(0.05, patternBeats * (60 / this.bpm));
+    const elapsed = elapsedBeats * (60 / this.bpm);
+    const window = end - offset;
+    if (window <= 0 || (!track.device.sampleLoop && elapsed >= window)) return;
+    const sourceOffset = offset + (track.device.sampleLoop ? elapsed % window : elapsed);
+    const playDur = Math.min(
+      patternBeats * (60 / this.bpm),
+      track.device.sampleLoop ? Infinity : end - sourceOffset,
+    );
+    if (playDur <= 0) return;
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     src.loop = track.device.sampleLoop;
@@ -345,12 +420,8 @@ class Performer {
     gain.gain.linearRampToValueAtTime(0, t + playDur);
     src.connect(gain);
     gain.connect(graph.input);
-    try {
-      src.start(t, offset, playDur);
-      this.keep(src);
-    } catch {
-      /* invalid sample window */
-    }
+    src.start(t, sourceOffset, playDur);
+    this.keep(src);
   }
 
   keep(node: AudioScheduledSourceNode) {
@@ -406,7 +477,11 @@ class Performer {
     this.releasePreview(key, voice, this.ctx.currentTime);
   }
 
-  releasePreview(_key: string, voice: SustainVoice | { nodes: AudioScheduledSourceNode[] }, time: number) {
+  releasePreview(
+    _key: string,
+    voice: SustainVoice | { nodes: AudioScheduledSourceNode[] },
+    time: number,
+  ) {
     if (!("gain" in voice)) return;
     const value = Math.max(0.0001, voice.gain.gain.value || 0.0001);
     voice.gain.gain.cancelScheduledValues(time);
@@ -504,14 +579,14 @@ class Engine {
     this.performer?.update(snap);
   }
 
-  async ensure() {
+  async ensure(restore = true) {
     if (!this.snap) return;
     if (!this.performer) {
       const ctx = new AudioContext();
       this.performer = new Performer(ctx, ctx.destination, this.snap, false);
       this.performer.hooks = this.wrapHooks();
-      await this.restoreSamples();
     }
+    if (restore) await this.restoreSamples();
     if (this.performer.ctx instanceof AudioContext && this.performer.ctx.state === "suspended") {
       await this.performer.ctx.resume();
     }
@@ -555,11 +630,11 @@ class Engine {
   }
 
   async loadSample(trackId: string, data: ArrayBuffer) {
-    await this.ensure();
+    await this.ensure(false);
     const ctx = this.performer?.ctx;
     if (!(ctx instanceof AudioContext)) throw new Error("Audio isn't ready");
-    await idbPut(trackId, data);
     const audio = await ctx.decodeAudioData(data.slice(0));
+    await idbPut(trackId, data);
     sampleBank.set(trackId, audio);
     samplePeaks.set(trackId, computePeaks(audio));
     this.hooks.onSamples?.();
@@ -579,24 +654,32 @@ class Engine {
   async restoreSamples() {
     const ctx = this.performer?.ctx;
     if (!(ctx instanceof AudioContext) || !this.snap) return;
-    const ids = this.snap.project.tracks.filter((t) => t.kind === "sample").map((t) => t.id);
+    const ids = this.snap.project.tracks
+      .filter((t) => t.kind === "sample" && (t.arrangement.length || t.clips.some(Boolean)))
+      .map((t) => t.id);
     for (const id of ids) {
       if (sampleBank.has(id)) continue;
       try {
         const data = await idbGet(id);
-        if (!data) continue;
+        if (!data)
+          throw new Error(
+            `Audio for ${id} is missing. Reimport the file or open a project backup.`,
+          );
         const audio = await ctx.decodeAudioData(data.slice(0));
         sampleBank.set(id, audio);
         samplePeaks.set(id, computePeaks(audio));
-      } catch {
-        /* skip a corrupt sample */
+      } catch (error) {
+        throw new Error(
+          `Could not restore sample ${id}: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
       }
     }
     this.hooks.onSamples?.();
   }
 
-  async bounce(snap: Snapshot): Promise<Blob> {
-    const hasArrange = snap.project.tracks.some((t) => t.arrangement.length > 0);
+  async bounce(snap: Snapshot, options: ExportOptions): Promise<Blob> {
+    await this.ensure();
+    const hasArrange = options.source === "arrange";
     const launched: Record<string, LaunchState> = {};
     if (!hasArrange) {
       for (const [id, launch] of Object.entries(snap.launched)) {
@@ -606,13 +689,28 @@ class Engine {
     const renderSnap: Snapshot = hasArrange
       ? { project: snap.project, follow: "arrange", launched: {}, metronome: false }
       : { project: snap.project, follow: "session", launched, metronome: false };
-    const beats = hasArrange ? snap.project.bars * 4 : 32;
-    const seconds = beats * (60 / snap.project.bpm) + 1.1;
+    if (!hasArrange && !Object.keys(launched).length) {
+      throw new Error("Launch a session clip before exporting the session.");
+    }
+    const from = (options.startBar - 1) * 4;
+    const to = options.endBar * 4;
+    if (
+      !Number.isInteger(options.startBar) ||
+      !Number.isInteger(options.endBar) ||
+      from < 0 ||
+      to <= from ||
+      to > snap.project.bars * 4
+    ) {
+      throw new Error("Choose a valid export range within the song.");
+    }
+    const seconds = (to - from) * (60 / snap.project.bpm) + (options.tail ? 2 : 0);
     const offline = new OfflineAudioContext(2, Math.ceil(44100 * seconds), 44100);
     const performer = new Performer(offline, offline.destination, renderSnap, true);
-    performer.scheduleAll(0, beats);
+    performer.originBeat = from;
+    performer.originTime = 0;
+    performer.schedule(from, to);
     const audio = await offline.startRendering();
-    return encodeWav(audio);
+    return options.format === "mp3" ? encodeMp3(audio, options.bitrate) : encodeWav(audio);
   }
 }
 

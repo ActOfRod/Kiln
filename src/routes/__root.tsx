@@ -13,11 +13,11 @@ export const Route = createRootRoute({
         name: "viewport",
         content: "width=device-width, initial-scale=1, viewport-fit=cover",
       },
-      { title: `${APP_NAME} — pocket session studio` },
+      { title: `${APP_NAME} — desktop music studio` },
       {
         name: "description",
         content:
-          "KILN is a touch-first session studio: launch clips, arrange a song, mix, and play drums and synths on your phone.",
+          "A clean, desktop-first music studio. Build arrangements, launch clips, organize your sound library, and export MP3 and WAV.",
       },
       { name: "theme-color", content: "#100e0c" },
     ],

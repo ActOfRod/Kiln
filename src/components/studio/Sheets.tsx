@@ -79,9 +79,13 @@ export function DeviceSheet({ trackId, onClose }: { trackId: string; onClose: ()
         min={0}
         max={1}
         step={0.001}
-        value={(Math.log(Math.min(14000, Math.max(80, track.device.cutoff))) - MIN_F) / (MAX_F - MIN_F)}
+        value={
+          (Math.log(Math.min(14000, Math.max(80, track.device.cutoff))) - MIN_F) / (MAX_F - MIN_F)
+        }
         display={`${Math.round(track.device.cutoff)} Hz`}
-        onChange={(pos) => updateDevice(track.id, { cutoff: Math.exp(MIN_F + pos * (MAX_F - MIN_F)) })}
+        onChange={(pos) =>
+          updateDevice(track.id, { cutoff: Math.exp(MIN_F + pos * (MAX_F - MIN_F)) })
+        }
       />
       <Field
         label="Resonance"
@@ -109,7 +113,9 @@ export function DeviceSheet({ trackId, onClose }: { trackId: string; onClose: ()
             type="button"
             className={cx(
               "press h-11 rounded-md font-mono text-sm",
-              track.device.delayDivision === div.value ? "bg-accent text-accent-ink" : "bg-surface-2",
+              track.device.delayDivision === div.value
+                ? "bg-accent text-accent-ink"
+                : "bg-surface-2",
             )}
             onClick={() => updateDevice(track.id, { delayDivision: div.value })}
           >
@@ -156,12 +162,26 @@ function SampleTools({ track, rev }: { track: Track; rev: number }) {
   const scene = useStudio((s) => s.selectedScene);
   const fileRef = useRef<HTMLInputElement>(null);
   const recRef = useRef<{ stop: () => Promise<ArrayBuffer> } | null>(null);
+  const mounted = useRef(false);
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const peaks = engine.peaks(track.id);
   const duration = engine.duration(track.id);
   void rev;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const recorder = recRef.current;
+      recRef.current = null;
+      if (recorder)
+        void recorder
+          .stop()
+          .catch((error: unknown) => console.error("Microphone cleanup failed", error));
+    };
+  }, []);
 
   const take = async (data: ArrayBuffer, name: string) => {
     setBusy(true);
@@ -202,13 +222,28 @@ function SampleTools({ track, rev }: { track: Track; rev: number }) {
               const handle = recRef.current;
               recRef.current = null;
               setLive(false);
-              void handle.stop().then((data) => take(data, "Mic take")).catch(() => setMessage("Recording failed."));
+              void handle
+                .stop()
+                .then((data) => take(data, "Mic take"))
+                .catch(() => setMessage("Recording failed."));
               return;
             }
+            setBusy(true);
             void navigator.mediaDevices
               .getUserMedia({ audio: true })
               .then((stream) => {
-                const rec = new MediaRecorder(stream);
+                if (!mounted.current) {
+                  stream.getTracks().forEach((item) => item.stop());
+                  return;
+                }
+                let rec: MediaRecorder;
+                try {
+                  rec = new MediaRecorder(stream);
+                  rec.start();
+                } catch (error) {
+                  stream.getTracks().forEach((item) => item.stop());
+                  throw error;
+                }
                 const chunks: Blob[] = [];
                 rec.ondataavailable = (event) => {
                   if (event.data.size) chunks.push(event.data);
@@ -220,12 +255,22 @@ function SampleTools({ track, rev }: { track: Track; rev: number }) {
                     blob.arrayBuffer().then(resolve).catch(reject);
                   };
                 });
-                rec.start();
-                recRef.current = { stop: async () => { rec.stop(); return stopped; } };
+                recRef.current = {
+                  stop: async () => {
+                    rec.stop();
+                    return stopped;
+                  },
+                };
                 setLive(true);
                 setMessage("Recording… tap again to stop.");
               })
-              .catch(() => setMessage("Microphone isn't available. Import a file instead."));
+              .catch(() => {
+                if (mounted.current)
+                  setMessage("Microphone isn't available. Import a file instead.");
+              })
+              .finally(() => {
+                if (mounted.current) setBusy(false);
+              });
           }}
         >
           {live ? "Stop mic" : "Record mic"}
@@ -244,7 +289,9 @@ function SampleTools({ track, rev }: { track: Track; rev: number }) {
             setMessage("Keep audio under 15 MB.");
             return;
           }
-          void file.arrayBuffer().then((data) => take(data, file.name.replace(/\.[^.]+$/, "") || "Audio"));
+          void file
+            .arrayBuffer()
+            .then((data) => take(data, file.name.replace(/\.[^.]+$/, "") || "Audio"));
         }}
       />
       {duration > 0 && (
@@ -318,7 +365,9 @@ function Waveform({ peaks }: { peaks: number[] | null }) {
 
 export function PatternSheet({ onClose }: { onClose: () => void }) {
   const slot = useStudio((s) => s.selectedSlot);
-  const track = useStudio((s) => s.project.tracks.find((t) => t.id === (slot?.trackId ?? s.selectedTrackId)));
+  const track = useStudio((s) =>
+    s.project.tracks.find((t) => t.id === (slot?.trackId ?? s.selectedTrackId)),
+  );
   const insertPattern = useStudio((s) => s.insertPattern);
   if (!track || !slot) {
     return (
@@ -368,7 +417,10 @@ export function EditorSheet({ onClose }: { onClose: () => void }) {
     if (!launch) return -1;
     const idx = s.beat < launch.launchBeat - 0.001 ? launch.previous?.clipIndex : launch.clipIndex;
     if (idx !== slot.scene) return -1;
-    const origin = s.beat < launch.launchBeat && launch.previous ? launch.previous.launchBeat : launch.launchBeat;
+    const origin =
+      s.beat < launch.launchBeat && launch.previous
+        ? launch.previous.launchBeat
+        : launch.launchBeat;
     const rel = (((s.beat - origin) % clip.length) + clip.length) % clip.length;
     return Math.floor(rel * 4);
   });
@@ -414,7 +466,9 @@ export function EditorSheet({ onClose }: { onClose: () => void }) {
               </div>
               {Array.from({ length: steps }, (_, step) => {
                 const start = step * 0.25;
-                const on = clip.notes.some((note) => note.pitch === row.pitch && Math.abs(note.start - start) < 0.02);
+                const on = clip.notes.some(
+                  (note) => note.pitch === row.pitch && Math.abs(note.start - start) < 0.02,
+                );
                 const beat = step % 4 === 0;
                 return (
                   <button
@@ -456,15 +510,31 @@ export function TempoSheet({ onClose }: { onClose: () => void }) {
   return (
     <Sheet title="Tempo" onClose={onClose}>
       <div className="mb-2 flex items-center justify-between">
-        <button type="button" className="press h-11 w-11 rounded-md bg-surface-2 text-lg" onClick={() => setBpm(bpm - 1)}>
+        <button
+          type="button"
+          className="press h-11 w-11 rounded-md bg-surface-2 text-lg"
+          onClick={() => setBpm(bpm - 1)}
+        >
           −
         </button>
         <span className="font-mono text-3xl font-medium tabular-nums">{bpm}</span>
-        <button type="button" className="press h-11 w-11 rounded-md bg-surface-2 text-lg" onClick={() => setBpm(bpm + 1)}>
+        <button
+          type="button"
+          className="press h-11 w-11 rounded-md bg-surface-2 text-lg"
+          onClick={() => setBpm(bpm + 1)}
+        >
           +
         </button>
       </div>
-      <Field label="BPM" min={70} max={180} step={1} value={bpm} display={`${bpm}`} onChange={setBpm} />
+      <Field
+        label="BPM"
+        min={70}
+        max={180}
+        step={1}
+        value={bpm}
+        display={`${bpm}`}
+        onChange={setBpm}
+      />
       <Field
         label="Swing"
         min={0}
@@ -477,7 +547,10 @@ export function TempoSheet({ onClose }: { onClose: () => void }) {
       <button
         type="button"
         aria-pressed={metronome}
-        className={cx("press mt-3 h-11 w-full rounded-md text-sm font-semibold", metronome ? "bg-accent text-accent-ink" : "bg-surface-2")}
+        className={cx(
+          "press mt-3 h-11 w-full rounded-md text-sm font-semibold",
+          metronome ? "bg-accent text-accent-ink" : "bg-surface-2",
+        )}
         onClick={toggle}
       >
         {metronome ? "Metronome on" : "Metronome off"}
@@ -531,7 +604,7 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
             key={kind}
             type="button"
             className="press h-11 rounded-md bg-surface-2 text-sm font-semibold capitalize disabled:opacity-40"
-            disabled={project.tracks.length >= 8}
+            disabled={project.tracks.length >= 32}
             onClick={() => addTrack(kind)}
           >
             {kind === "sample" ? "Audio" : kind}
@@ -573,7 +646,9 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
         New empty set
       </button>
       {error && <p className="mt-3 text-sm text-record">{error}</p>}
-      <p className="mt-4 text-sm text-pretty text-muted">Saved automatically on this phone.</p>
+      <p className="mt-4 text-sm text-pretty text-muted">
+        Saved automatically in this browser. Download a project backup to preserve your audio.
+      </p>
     </Sheet>
   );
 }

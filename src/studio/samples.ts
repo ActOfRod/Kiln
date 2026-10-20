@@ -16,14 +16,22 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 export async function idbPut(id: string, data: ArrayBuffer): Promise<void> {
+  await idbPutMany([[id, data]]);
+}
+
+export async function idbPutMany(entries: Array<[string, ArrayBuffer]>): Promise<void> {
   const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(data, id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error("Could not store sample"));
-  });
-  db.close();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      for (const [id, data] of entries) tx.objectStore(STORE).put(data, id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("Could not store sample"));
+      tx.onabort = () => reject(tx.error ?? new Error("Sample storage transaction was cancelled"));
+    });
+  } finally {
+    db.close();
+  }
 }
 
 export async function idbGet(id: string): Promise<ArrayBuffer | null> {

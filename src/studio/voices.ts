@@ -56,7 +56,11 @@ export interface TrackGraph {
   meter: Uint8Array<ArrayBuffer>;
 }
 
-export function buildGraph(ctx: BaseAudioContext, dest: AudioNode, impulse: AudioBuffer): TrackGraph {
+export function buildGraph(
+  ctx: BaseAudioContext,
+  dest: AudioNode,
+  impulse: AudioBuffer,
+): TrackGraph {
   const input = ctx.createGain();
   const drive = ctx.createWaveShaper();
   drive.oversample = "2x";
@@ -182,7 +186,16 @@ export function triggerDrum(
     const nodes: AudioScheduledSourceNode[] = [];
     const bursts = clap ? [0, 0.011, 0.022] : [0];
     for (const off of bursts) {
-      nodes.push(noiseHit(ctx, dest, time + off, clap ? 0.16 : 0.18, v * (clap ? 0.42 : 0.5), clap ? 1200 : 800));
+      nodes.push(
+        noiseHit(
+          ctx,
+          dest,
+          time + off,
+          clap ? 0.16 : 0.18,
+          v * (clap ? 0.42 : 0.5),
+          clap ? 1200 : 800,
+        ),
+      );
     }
     const osc = ctx.createOscillator();
     osc.type = "triangle";
@@ -273,10 +286,17 @@ function tonalChain(
   const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
   const floor = clamp(dev.cutoff, 70, 14000);
-  const open = clamp(floor * (track.kind === "bass" ? 4.2 : track.kind === "lead" ? 2.8 : 2.1), floor, 15000);
+  const open = clamp(
+    floor * (track.kind === "bass" ? 4.2 : track.kind === "lead" ? 2.8 : 2.1),
+    floor,
+    15000,
+  );
   filter.Q.value = clamp(dev.resonance, 0.4, 16);
   filter.frequency.setValueAtTime(Math.max(open, 80), time);
-  filter.frequency.exponentialRampToValueAtTime(Math.max(floor, 70), time + Math.max(0.06, dev.decay));
+  filter.frequency.exponentialRampToValueAtTime(
+    Math.max(floor, 70),
+    time + Math.max(0.06, dev.decay),
+  );
 
   const gain = ctx.createGain();
   osc1.connect(filter);
@@ -307,16 +327,18 @@ export function triggerTonal(
   duration: number,
   velocity: number,
 ): AudioScheduledSourceNode[] {
-  const peak = clamp(velocity, 0.05, 1) * (track.kind === "bass" ? 0.4 : track.kind === "lead" ? 0.2 : 0.17);
+  const peak =
+    clamp(velocity, 0.05, 1) * (track.kind === "bass" ? 0.4 : track.kind === "lead" ? 0.2 : 0.17);
   const { nodes, gain } = tonalChain(ctx, dest, track, pitch, time, peak);
   const attack = clamp(track.device.attack, 0.003, 0.8);
   const dur = Math.max(0.06, duration);
   gain.gain.setValueAtTime(0.0001, time);
   gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), time + attack);
-  const mid = time + Math.max(attack + 0.02, dur * 0.65);
+  const end = Math.max(attack + 0.04, dur + 0.05);
+  const mid = time + Math.max(attack + 0.02, end * 0.65);
   gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak * 0.55), mid);
-  gain.gain.exponentialRampToValueAtTime(0.0001, time + dur + 0.05);
-  const stop = time + dur + 0.08;
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + end);
+  const stop = time + end + 0.03;
   for (const node of nodes) {
     node.start(time);
     node.stop(stop);
@@ -332,7 +354,8 @@ export function startSustain(
   time: number,
   velocity: number,
 ): SustainVoice {
-  const peak = clamp(velocity, 0.05, 1) * (track.kind === "bass" ? 0.4 : track.kind === "lead" ? 0.2 : 0.17);
+  const peak =
+    clamp(velocity, 0.05, 1) * (track.kind === "bass" ? 0.4 : track.kind === "lead" ? 0.2 : 0.17);
   const { nodes, gain, filter } = tonalChain(ctx, dest, track, pitch, time, peak);
   const attack = clamp(track.device.attack, 0.003, 0.6);
   gain.gain.setValueAtTime(0.0001, time);

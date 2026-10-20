@@ -43,8 +43,19 @@ export function PlayView() {
       if (key && semi != null) map[key] = octave * 12 + semi;
     });
     const down = (event: KeyboardEvent) => {
-      if (event.repeat) return;
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (
+        event.repeat ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        document.querySelector("[role=dialog]")
+      )
+        return;
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest("input, textarea, select, [contenteditable]")
+      )
+        return;
       const pitch = map[event.key.toLowerCase()];
       if (pitch == null || !track || track.kind === "drums" || track.kind === "sample") return;
       event.preventDefault();
@@ -128,7 +139,7 @@ export function PlayView() {
       ) : track.kind === "sample" ? (
         <div className="grid flex-1 place-items-center rounded-md bg-surface px-6 text-center">
           <p className="max-w-xs text-pretty text-muted">
-            Launch the audio clip from Session, or open Sound to import a file from this phone and trim it.
+            Launch the audio clip from Session, or open Track sound to import a file and trim it.
           </p>
         </div>
       ) : (
@@ -171,7 +182,9 @@ export function PlayView() {
                     onPointerUp={() => release(pitch)}
                     onPointerCancel={() => release(pitch)}
                   >
-                    <span className="absolute inset-x-0 bottom-2 text-center">{noteName(pitch)}</span>
+                    <span className="absolute inset-x-0 bottom-2 text-center">
+                      {noteName(pitch)}
+                    </span>
                   </button>
                 );
               })}
@@ -203,7 +216,9 @@ export function PlayView() {
               })}
             </div>
           </div>
-          <p className="text-center text-xs text-faint">Computer keys A–J play the white keys, W E T Y U the black keys.</p>
+          <p className="text-center text-xs text-faint">
+            Computer keys A–J play the white keys, W E T Y U the black keys.
+          </p>
         </div>
       )}
     </div>

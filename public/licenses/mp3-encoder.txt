@@ -1,0 +1,29 @@
+KILN MP3 encoder notice
+
+MP3 encoding uses LAME through @breezystack/lamejs version 1.2.7.
+Author: Alex Zhukov; LAME project contributors and the ESM package maintainers.
+LAME project: https://lame.sourceforge.net/
+Package source: https://github.com/shijinyu/lamejs
+Exact distributed package (including its license notice):
+https://registry.npmjs.org/@breezystack/lamejs/-/lamejs-1.2.7.tgz
+
+License: GNU Lesser General Public License, version 3 (LGPL-3.0).
+License text: https://www.gnu.org/licenses/lgpl-3.0.html
+Incorporated GPL terms: https://www.gnu.org/licenses/gpl-3.0.html
+
+KILN does not modify the encoder. It is dynamically imported as a separate
+JavaScript module. Its source is available at the links above, and the
+dependency can be replaced and rebuilt through KILN's package manifest.
+
+Upstream package license notice:
+
+Can I use LAME in my commercial program?
+
+Yes, you can, under the restrictions of the LGPL. The easiest
+way to do this is to:
+
+1. Link to LAME as separate jar (lame.min.js or lame.all.js)
+2. Fully acknowledge that you are using LAME, and give a link
+   to our web site, lame.sourceforge.net
+3. If you make modifications to LAME, you must release these
+   modifications back to the LAME project, under the LGPL.

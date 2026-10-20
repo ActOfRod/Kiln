@@ -27,6 +27,7 @@ export interface ArrangeClip {
   start: number;
   length: number;
   patternLength: number;
+  offset?: number;
   notes: Note[];
 }
 
