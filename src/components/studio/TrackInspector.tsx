@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Copy, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useStudio } from "@/studio/store";
+import { instrumentOf } from "@/studio/instruments";
 import { CLIP_BG, Field, cx } from "./ui";
 
 export function TrackInspector({ onDevice }: { onDevice: (id: string) => void }) {
@@ -71,13 +72,11 @@ export function TrackInspector({ onDevice }: { onDevice: (id: string) => void })
         <button className="device-card" onClick={() => onDevice(track.id)}>
           <SlidersHorizontal size={17} />
           <strong>
-            {track.kind === "drums"
-              ? "Drum machine"
-              : track.kind === "sample"
-                ? "Audio sampler"
-                : `${track.kind} synthesizer`}
+            {track.kind === "sample"
+              ? "Audio sampler"
+              : instrumentOf(track.kind, track.device).name}
           </strong>
-          <span>Edit instrument & effects →</span>
+          <span>Change instrument & effects →</span>
         </button>
         <Field
           label="Filter"

@@ -9,7 +9,8 @@ app, so no separate Windows executable is built. Mobile redesign is deferred.
 
 The workspace includes a searchable local sound library, a 32-track arrangement
 with drag-and-drop regions, an Ableton-style **Clip View** for audio clips,
-piano-roll and MIDI clip tools, session launcher, synths and drum machine, track
+piano-roll and MIDI clip tools, session launcher, swappable instruments (grand
+and electric piano, organ, strings, pads, plucks, bass and drum kits), track
 inspector, mixer, undo / redo, portable projects, **live collaboration** and
 **real MP3 / WAV exports**. See the [Ableton feature inventory](docs/features.md) for implemented
 capabilities and explicit limitations.
@@ -54,7 +55,9 @@ draw a region.
 
 Import audio into the library, audition it, then drag it in or use **+** for a
 new track. Name, tag and favorite imported sounds from their library details.
-Every placed clip keeps its own copy of the audio. Microphone recording lives in
+Every placed clip keeps its own copy of the audio. To change how a track
+sounds, open **Instruments** (or the inspector's instrument card) and pick an
+instrument — the notes stay the same and you hear a short preview. Microphone recording lives in
 **Track sound**. MIDI recording in Instruments writes into the selected **session
 scene**, not directly into an arrangement region.
 

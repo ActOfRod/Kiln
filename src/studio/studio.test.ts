@@ -13,6 +13,7 @@ import {
 } from "./audio-clip.ts";
 import { pcm16, encodeMp3 } from "./export.ts";
 import { projectFileSchema, projectSchema } from "./project-file.ts";
+import { instrumentOf, instrumentsFor, renderNote } from "./instruments.ts";
 
 describe("desktop project contracts", () => {
   it("accepts the existing demo and empty project without migration", () => {
@@ -194,5 +195,78 @@ describe("MIDI clip tools", () => {
     assert.equal(twice.notes.length, 4);
     assert.equal(twice.notes[2]!.start, 4);
     assert.notEqual(twice.notes[2]!.id, "a");
+  });
+});
+
+describe("instruments", () => {
+  const sr = 44100;
+  // Autocorrelation pitch estimate with parabolic peak interpolation.
+  const pitchOf = (data: Float32Array, start: number) => {
+    const n = 4096;
+    let best = 0;
+    let bestLag = 0;
+    const corr: number[] = [];
+    for (let lag = Math.floor(sr / 2000); lag < sr / 35; lag++) {
+      let sum = 0;
+      for (let i = 0; i < n; i++) sum += data[start + i]! * data[start + i + lag]!;
+      corr[lag] = sum;
+      if (sum > best) {
+        best = sum;
+        bestLag = lag;
+      }
+    }
+    // Prefer the shortest lag with a near-maximal peak (avoids octave errors).
+    for (let lag = Math.floor(sr / 2000) + 1; lag < bestLag; lag++)
+      if (corr[lag]! > 0.9 * best && corr[lag]! >= corr[lag - 1]! && corr[lag]! >= corr[lag + 1]!) {
+        bestLag = lag;
+        break;
+      }
+    const [a, b, c] = [corr[bestLag - 1]!, corr[bestLag]!, corr[bestLag + 1]!];
+    return sr / (bestLag + (0.5 * (a - c)) / (a - 2 * b + c));
+  };
+  const rms = (data: Float32Array, from: number, to: number) => {
+    let sum = 0;
+    for (let i = from; i < to; i++) sum += data[i]! ** 2;
+    return Math.sqrt(sum / (to - from));
+  };
+  for (const [id, pitch] of [
+    ["grand-piano", 57],
+    ["grand-piano", 69],
+    ["electric-piano", 60],
+    ["pluck", 64],
+    ["electric-bass", 40],
+  ] as const) {
+    it(`${id} plays MIDI ${pitch} in tune and decays naturally`, () => {
+      const data = renderNote(id, pitch, sr);
+      assert.ok(data.every(Number.isFinite));
+      assert.ok(data.reduce((peak, x) => Math.max(peak, Math.abs(x)), 0) <= 1.0001);
+      const hz = pitchOf(data, Math.floor(sr * 0.12));
+      const cents = 1200 * Math.log2(hz / (440 * 2 ** ((pitch - 69) / 12)));
+      assert.ok(Math.abs(cents) < 25, `${hz.toFixed(1)} Hz is ${cents.toFixed(1)} cents off`);
+      const early = rms(data, Math.floor(sr * 0.05), Math.floor(sr * 0.25));
+      const late = rms(data, data.length - Math.floor(sr * 0.2), data.length);
+      assert.ok(late < early / 5, "note should die away");
+    });
+  }
+  it("keeps existing songs on their original sound and only lists valid instruments", () => {
+    assert.equal(instrumentOf("keys", {}).id, "analog");
+    assert.equal(instrumentOf("drums", {}).id, "drum-machine");
+    assert.equal(instrumentOf("keys", { instrument: "808-kit" }).id, "analog");
+    assert.equal(instrumentOf("drums", { instrument: "grand-piano" }).id, "drum-machine");
+    assert.equal(instrumentsFor("keys")[0]!.id, "grand-piano");
+    assert.equal(instrumentsFor("bass")[0]!.family, "Bass");
+    assert.ok(instrumentsFor("drums").every((item) => item.engine === "drums"));
+    assert.deepEqual(instrumentsFor("sample"), []);
+    assert.equal(
+      createDemoProject().tracks.find((t) => t.kind === "keys")!.device.instrument,
+      "grand-piano",
+    );
+  });
+  it("validates the instrument field in saved projects", () => {
+    const project = createDemoProject();
+    project.tracks[1]!.device.instrument = "electric-bass";
+    assert.equal(projectSchema.parse(project).tracks[1]!.device.instrument, "electric-bass");
+    (project.tracks[1]!.device as { instrument: string }).instrument = "theremin";
+    assert.equal(projectSchema.safeParse(project).success, false);
   });
 });

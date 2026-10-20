@@ -13,6 +13,9 @@ Main code: `StudioApp.tsx`, `ArrangeView.tsx`, `ClipView.tsx`,
 - Clip View: clicking an audio clip opens Ableton-style controls (markers,
   loop, reverse, gain, transpose, detune, Re-Pitch warp, fades). MIDI clips get
   transpose / velocity / reverse / invert / speed / duplicate-loop tools.
+- Instruments: `src/studio/instruments.ts` catalog and models,
+  `InstrumentPicker.tsx` in the Instruments view and Track sound; voices in
+  `voices.ts`. `scripts/instrument-browser-check.mjs` (21 checks).
 - Drag and drop: regions move between compatible tracks, Alt-drag copies, fade
   handles, library sounds and computer audio files drop onto lanes or the empty
   area (new track). Per-clip immutable `assetId` audio.

@@ -61,6 +61,18 @@ audio regions longer than their pattern length.
 Clip pitch / warp use sampler-style playback rate (Ableton's Re-Pitch). Pitch-
 preserving stretch needs a DSP time-stretcher and was not faked.
 
+## 2026-10-20: Synthesized instruments instead of sample libraries
+
+Tracks can swap instruments (Grand Piano, Electric Piano, Organ, Strings, Pads,
+Pluck, Bell, Electric / Sub Bass, Analog; Electronic / Acoustic / 808 kits).
+Rejected bundling multi-sampled recordings for now: a usable piano needs tens
+of megabytes plus licence review, which would slow the Pages site and the
+offline-first app. Modelled voices (inharmonic hammered strings, FM tines,
+Karplus–Strong strings) are small, deterministic and render identically for
+export. Revisit with an optional downloadable sample pack if a more realistic
+acoustic piano is needed. New keys tracks default to Grand Piano; existing
+songs keep their analog sound until changed.
+
 ## 2026-10-20: Link-shared live sessions on Supabase
 
 Rejected accounts for the first version: the request was Google-Docs-style

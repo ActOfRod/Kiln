@@ -47,7 +47,14 @@ template auth / PGLite helpers are platform scaffolding, not studio consumers.
 
 Time values are quarter-note beats; 4 beats per bar, inclusive export bar
 numbers, sample trim in seconds, velocity / volume in 0–1 and pan in −1–1.
-Synth note duration converts beats to seconds at scheduling time. Library
+Synth note duration converts beats to seconds at scheduling time.
+`Device.instrument` (optional) chooses the voice in `instruments.ts`; absent
+means the original analog synth / electronic kit, so older songs sound the same.
+Piano, electric piano, pluck, bell and electric bass are synthesized per note
+(physical / FM models) into cached AudioBuffers, pre-rendered in idle time for
+the notes a song uses; organ, strings, pads and sub bass are live oscillator
+voices. Live play, playback and export share these voices. `cutoff` is the
+instrument's Tone (velocity-scaled brightness) and `decay` its Release. Library
 `addedAt` is Unix milliseconds, used only for descending local import order.
 IDs, not names, identify tracks, notes, clips, regions and library sounds.
 Duplicate names are valid; portable imports reject duplicate track IDs.

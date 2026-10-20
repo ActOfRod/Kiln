@@ -1,3 +1,5 @@
+import type { InstrumentId } from "./instruments";
+
 export type ClipColor = "ember" | "clay" | "gold" | "sage";
 export type TrackKind = "drums" | "bass" | "keys" | "lead" | "sample";
 export type Wave = "sine" | "triangle" | "sawtooth" | "square";
@@ -62,6 +64,8 @@ export interface Device {
   sampleOffset: number;
   sampleEnd: number;
   sampleLoop: boolean;
+  /** Instrument voice; absent means the original analog synth / electronic kit. */
+  instrument?: InstrumentId;
 }
 
 export interface Track {

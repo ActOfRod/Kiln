@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { INSTRUMENT_IDS } from "./instruments.ts";
 
 const finite = z.number().finite();
 const color = z.enum(["ember", "clay", "gold", "sage"]);
@@ -46,6 +47,7 @@ const device = z.object({
   sampleOffset: finite.min(0),
   sampleEnd: finite.min(0),
   sampleLoop: z.boolean(),
+  instrument: z.enum(INSTRUMENT_IDS).optional(),
 });
 export const projectSchema = z
   .object({

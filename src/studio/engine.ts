@@ -2,6 +2,7 @@ import type { ArrangeClip, Follow, LaunchState, Note, Project, Track } from "./t
 import { clamp } from "./theory";
 import { encodeMp3, type ExportOptions } from "./export";
 import { regionOffset } from "./regions";
+import { instrumentOf, warmNotes, type InstrumentId } from "./instruments";
 import {
   assetOf,
   clipGain,
@@ -390,7 +391,14 @@ class Performer {
     if (!graph) return;
     const nodes =
       track.kind === "drums"
-        ? triggerDrum(this.ctx, graph.input, note.pitch, time, note.velocity)
+        ? triggerDrum(
+            this.ctx,
+            graph.input,
+            note.pitch,
+            time,
+            note.velocity,
+            instrumentOf(track.kind, track.device).id,
+          )
         : triggerTonal(
             this.ctx,
             graph.input,
@@ -519,7 +527,14 @@ class Performer {
     this.previewUp(trackId, pitch);
     const now = this.ctx.currentTime;
     if (track.kind === "drums") {
-      const nodes = triggerDrum(this.ctx, graph.input, pitch, now, velocity);
+      const nodes = triggerDrum(
+        this.ctx,
+        graph.input,
+        pitch,
+        now,
+        velocity,
+        instrumentOf(track.kind, track.device).id,
+      );
       this.previews.set(key, { nodes });
       for (const node of nodes) this.keep(node);
       return;
@@ -548,10 +563,11 @@ class Performer {
     const value = Math.max(0.0001, voice.gain.gain.value || 0.0001);
     voice.gain.gain.cancelScheduledValues(time);
     voice.gain.gain.setValueAtTime(value, time);
-    voice.gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.08);
+    const release = Math.min(voice.release ?? 0.08, 3);
+    voice.gain.gain.exponentialRampToValueAtTime(0.0001, time + release);
     for (const node of voice.nodes) {
       try {
-        node.stop(time + 0.1);
+        node.stop(time + release + 0.02);
       } catch {
         /* already stopped */
       }
@@ -658,6 +674,31 @@ class Engine {
   sync(snap: Snapshot) {
     this.snap = snap;
     this.performer?.update(snap);
+    this.warm();
+  }
+
+  /** Pre-render the notes the song uses on rendered instruments (piano, plucks…). */
+  warm(extra: Array<[InstrumentId, number]> = []) {
+    const rate = this.performer?.ctx.sampleRate;
+    if (!rate || !this.snap) return;
+    const entries: Array<[InstrumentId, number]> = [...extra];
+    for (const track of this.snap.project.tracks) {
+      const def = instrumentOf(track.kind, track.device);
+      if (def.engine !== "rendered") continue;
+      const pitches = new Set<number>();
+      for (const clip of [...track.clips, ...track.arrangement])
+        for (const note of clip?.notes ?? []) pitches.add(note.pitch);
+      for (const pitch of pitches) entries.push([def.id, pitch]);
+    }
+    warmNotes(entries, rate);
+  }
+
+  /** Pre-render a range of keys for a track (e.g. the keyboard on screen). */
+  warmKeys(trackId: string, pitches: number[]) {
+    const track = this.snap?.project.tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    const def = instrumentOf(track.kind, track.device);
+    if (def.engine === "rendered") this.warm(pitches.map((pitch) => [def.id, pitch]));
   }
 
   /** Create the audio graph; decoding works before the browser allows playback to resume. */
@@ -667,6 +708,7 @@ class Engine {
       const ctx = new AudioContext();
       this.performer = new Performer(ctx, ctx.destination, this.snap, false);
       this.performer.hooks = this.wrapHooks();
+      this.warm();
     }
     if (restore) await this.restoreSamples();
     if (
