@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createDemoProject, createEmptyProject } from "./factory.ts";
-import { fitRegion, splitRegion, transformMidi } from "./regions.ts";
+import { fitRegion, growBars, splitRegion, transformMidi } from "./regions.ts";
+import { folderOf, groupSounds, type LibrarySound } from "./library.ts";
 import {
   assetOf,
   clipWindow,
@@ -78,6 +79,62 @@ describe("region editing", () => {
     assert.equal(fit.start + fit.length, 64);
     assert.ok(fit.length > 0);
     assert.equal(fitRegion({ ...clip, start: -3 }, 16).start, 0);
+  });
+});
+
+describe("song length", () => {
+  it("grows to fit regions placed past the end, never shrinks, and caps at 128 bars", () => {
+    assert.equal(growBars(16, 64), 16);
+    assert.equal(growBars(16, 65), 17);
+    assert.equal(growBars(16, 72), 18);
+    assert.equal(growBars(32, 8), 32);
+    assert.equal(growBars(16, 9999), 128);
+  });
+  it("ships a demo whose regions fit inside the song", () => {
+    const project = createDemoProject();
+    const end = Math.max(
+      ...project.tracks.flatMap((t) => t.arrangement.map((c) => c.start + c.length)),
+    );
+    assert.equal(project.bars, end / 4);
+    assert.ok(project.tracks.length >= 6);
+  });
+});
+
+describe("sample folders", () => {
+  const sound = (name: string, folder?: string, addedAt = 0): LibrarySound => ({
+    id: `${folder ?? "loose"}-${name}`,
+    name,
+    tags: [],
+    favorite: false,
+    duration: 1,
+    addedAt,
+    ...(folder && { folder }),
+  });
+  it("derives the folder from a picked file's relative path", () => {
+    assert.equal(folderOf("Drum Kit/kick.wav"), "Drum Kit");
+    assert.equal(folderOf("Drum Kit/Snares/snare 1.wav"), "Drum Kit / Snares");
+    assert.equal(folderOf("kick.wav"), undefined);
+    assert.equal(folderOf(""), undefined);
+  });
+  it("keeps loose sounds in My samples and groups folders in natural order", () => {
+    const { loose, folders } = groupSounds([
+      sound("vox", undefined, 2),
+      sound("kick 10", "Kit"),
+      sound("kick 2", "Kit"),
+      sound("pad", "Ambient"),
+    ]);
+    assert.deepEqual(
+      loose.map((s) => s.name),
+      ["vox"],
+    );
+    assert.deepEqual(
+      folders.map((f) => f.name),
+      ["Ambient", "Kit"],
+    );
+    assert.deepEqual(
+      folders[1]!.sounds.map((s) => s.name),
+      ["kick 2", "kick 10"],
+    );
   });
 });
 

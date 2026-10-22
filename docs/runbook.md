@@ -67,7 +67,7 @@ confirm `npx -y npm@10 ci --dry-run` succeeds before merging.
 6. End-to-end cloud check (production build, real Supabase, three isolated
    browsers, 14 checks):
    `VITE_SUPABASE_URL=… VITE_SUPABASE_PUBLISHABLE_KEY=… npm run build:pages && node scripts/collab-cloud-check.mjs`.
-   It creates a real "Night Drive" room; delete test rooms afterwards with the
+   It creates a real "Ember Queen" room; delete test rooms afterwards with the
    maintainer role. Manual check after deploy: Share, open the link in a private
    window, confirm avatars, cursor, an edit, an audio drag-in and rejoin.
 7. "Client presence rate limit exceeded" closes a Realtime channel. Keep

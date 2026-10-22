@@ -730,6 +730,25 @@ button:disabled {
   color: #c3b7a7;
   background: #252019;
 }
+.bar-number.beyond {
+  color: #4f473d;
+  background: transparent;
+}
+.timeline-runway {
+  pointer-events: none;
+  position: absolute;
+  top: 38px;
+  bottom: 0;
+  z-index: 4;
+  border-left: 2px solid #6b5a45;
+  background: repeating-linear-gradient(
+    -45deg,
+    #0d0b0966,
+    #0d0b0966 6px,
+    #0d0b0933 6px,
+    #0d0b0933 12px
+  );
+}
 .arrange-track {
   height: 92px;
   display: flex;

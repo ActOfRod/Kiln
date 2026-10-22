@@ -429,7 +429,7 @@ export function StudioApp() {
               setSheet(null);
             }}
           >
-            Load Night Drive demo (undoable)
+            Load Ember Queen demo (undoable)
           </button>
         </Sheet>
       )}

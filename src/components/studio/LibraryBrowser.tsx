@@ -70,11 +70,6 @@ export function LibraryBrowser() {
   };
 
   useEffect(() => {
-    // Folder picking is a non-standard attribute React does not type.
-    folderInput.current?.setAttribute("webkitdirectory", "");
-  }, []);
-
-  useEffect(() => {
     const activeRequest = request;
     void listSounds()
       .then(setSounds)
@@ -163,7 +158,9 @@ export function LibraryBrowser() {
     }
     if (!audioFiles.length) throw new Error("No audio files found. Try WAV, MP3, AIFF or FLAC.");
     if (skipped)
-      setNotice(`Skipped ${skipped} ${skipped === 1 ? "file" : "files"} that weren't usable audio.`);
+      setNotice(
+        `Skipped ${skipped} ${skipped === 1 ? "file that wasn't" : "files that weren't"} usable audio.`,
+      );
   };
   const pickedFolder = (files: File[]) => {
     // Browsers without folder picking (e.g. some phones) hand back plain files; ask for a name.
@@ -550,6 +547,8 @@ export function LibraryBrowser() {
           ref={folderInput}
           hidden
           multiple
+          // Folder picking is a non-standard attribute React does not type.
+          {...{ webkitdirectory: "" }}
           aria-label="Import a folder of samples"
           onChange={(event) => {
             const files = Array.from(event.target.files ?? []);

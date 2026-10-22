@@ -67,7 +67,7 @@ try {
   await eventually(
     "joiner opens the shared song",
     bob,
-    `return useStudio.getState().project.name === "Night Drive";`,
+    `return useStudio.getState().project.name === "Ember Queen";`,
   );
   await eventually(
     "both people see each other",
@@ -99,7 +99,7 @@ try {
       `const p = useStudio.getState().project; return p.bpm === 97 && p.tracks[2].mute === true;`,
     );
 
-  await alice.locator('[aria-label="Region Soft hats"]').first().click();
+  await alice.locator('[aria-label="Region Distant drums"]').first().click();
   await eventually(
     "selection is visible to collaborators",
     bob,
@@ -133,7 +133,7 @@ try {
   await eventually(
     "undo reverts only your own change",
     alice,
-    `const t = useStudio.getState().project.tracks; return t[0].name === "Drums" && t[3].name === "Alice lead";`,
+    `const t = useStudio.getState().project.tracks; return t[0].name === "War Drums" && t[3].name === "Alice lead";`,
   );
 
   // Alice adds audio; it is uploaded, and Bob downloads it after his local copy is removed.

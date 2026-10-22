@@ -114,9 +114,10 @@ export function folderOf(relativePath: string): string | undefined {
 }
 
 /** "My samples" first (newest first), then folders A–Z with their sounds in name order. */
-export function groupSounds(
-  sounds: LibrarySound[],
-): { loose: LibrarySound[]; folders: Array<{ name: string; sounds: LibrarySound[] }> } {
+export function groupSounds(sounds: LibrarySound[]): {
+  loose: LibrarySound[];
+  folders: Array<{ name: string; sounds: LibrarySound[] }>;
+} {
   const loose: LibrarySound[] = [];
   const byFolder = new Map<string, LibrarySound[]>();
   for (const sound of sounds) {

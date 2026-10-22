@@ -43,7 +43,7 @@ two-person collaboration checks: `node scripts/clip-browser-check.mjs` and
 
 ## Use the studio
 
-Start with **Night Drive**, press Play, and use the ruler to seek. Drag library
+Start with **Ember Queen** (a dark cinematic demo in D minor), press Play, and use the ruler to seek. Drag library
 patterns or sounds onto a track, or onto the empty area below the tracks for a
 new track; you can also drop audio files straight from your computer. Click a
 region to open its clip: audio clips show start / end markers, loop, reverse,
@@ -51,10 +51,16 @@ gain, transpose, detune, warp (Re-Pitch) and fades; MIDI clips show the piano
 roll with transpose, velocity, reverse, invert and speed tools. Drag regions
 sideways or onto another track, Alt-drag to copy, drag the right edge to resize
 and the top corners of audio clips to fade. Double-click an empty MIDI lane to
-draw a region.
+draw a region. Dragging, resizing or dropping a region past the last bar extends
+the song automatically (up to 128 bars). Every track header has a **⋯** button
+for renaming, reordering, duplicating and deleting the track — this is how tracks
+are managed on phones and tablets, where the inspector is hidden.
 
 Import audio into the library, audition it, then drag it in or use **+** for a
-new track. Name, tag and favorite imported sounds from their library details.
+new track. **Import files** puts single sounds in _My samples_; **Folder** imports
+a whole folder and keeps its sounds grouped (sub-folders too). Collapse, delete or
+move sounds between folders from the library. Name, tag and favorite imported
+sounds from their library details.
 Every placed clip keeps its own copy of the audio. To change how a track
 sounds, open **Instruments** (or the inspector's instrument card) and pick an
 instrument — the notes stay the same and you hear a short preview. Microphone recording lives in

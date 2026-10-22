@@ -21,6 +21,7 @@ import {
   sourcePosition,
 } from "@/studio/audio-clip";
 import { clamp, DRUMS, noteName, quantize, uid } from "@/studio/theory";
+import { MAX_BARS } from "@/studio/regions";
 import type { ArrangeClip, Note, Track } from "@/studio/types";
 import { CLIP_BG, cx } from "./ui";
 import { AudioClipView, MidiClipTools } from "./ClipView";
@@ -225,6 +226,7 @@ function startRegionDrag(
 }
 
 const HEADER = 184;
+const RUNWAY_BARS = 8;
 const COLORS = { ember: "#e8893a", clay: "#d4785a", gold: "#e0c06a", sage: "#9fb58a" };
 
 export function ArrangeView({ onTrackMenu }: { onTrackMenu: (trackId: string) => void }) {
@@ -256,7 +258,10 @@ export function ArrangeView({ onTrackMenu }: { onTrackMenu: (trackId: string) =>
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [playing, px, beat]);
-  const width = project.bars * 4 * px;
+  // Empty bars after the song end give regions somewhere to be dragged; the song grows to fit.
+  const runway = Math.min(RUNWAY_BARS, MAX_BARS - project.bars);
+  const songWidth = project.bars * 4 * px;
+  const width = (project.bars + runway) * 4 * px;
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const peers = useCollab((s) => s.peers);
   const inRoom = useCollab((s) => !!s.room);
@@ -372,6 +377,16 @@ export function ArrangeView({ onTrackMenu }: { onTrackMenu: (trackId: string) =>
                 >
                   {px >= 16 || bar % 4 === 0 ? bar + 1 : ""}
                 </button>
+              ))}
+              {Array.from({ length: runway }, (_, i) => (
+                <span
+                  key={`runway-${i}`}
+                  className="bar-number beyond"
+                  style={{ width: px * 4 }}
+                  title="Past the song end: drag a region here to extend the song"
+                >
+                  {px >= 16 || (project.bars + i) % 4 === 0 ? project.bars + i + 1 : ""}
+                </span>
               ))}
             </div>
           </div>
@@ -533,6 +548,13 @@ export function ArrangeView({ onTrackMenu }: { onTrackMenu: (trackId: string) =>
             Drop patterns, library sounds or audio files here for a new track. Double-click a MIDI
             lane to draw a region; Alt-drag a region to copy it.
           </div>
+          {runway > 0 && (
+            <div
+              className="timeline-runway"
+              style={{ left: HEADER + songWidth, width: width - songWidth }}
+              aria-hidden="true"
+            />
+          )}
           <PeerPlayheads peers={peers.filter((peer) => peer.playing)} px={px} bars={project.bars} />
           <div ref={head} className="timeline-playhead" style={{ left: HEADER }}>
             <span />

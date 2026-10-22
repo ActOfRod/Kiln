@@ -198,18 +198,18 @@ try {
   await check(
     "dropping an audio file from the computer creates a new audio track",
     `const [f] = regions("Desktop file"); const track = s.project.tracks.find((t) => t.id === f.trackId);
-     return track.kind === "sample" && f.start === 4 && s.project.tracks.length === 7;`,
+     return track.kind === "sample" && f.start === 4 && s.project.tracks.length === 11;`,
   );
 
-  await page.locator('[aria-label="Region Stab"]').click();
+  await page.locator('[aria-label="Region Ostinato 8ths"]').click();
   await check(
     "MIDI clip transpose is available from clip tools",
-    `window.__before = regions("Stab")[0].notes.map((n) => n.pitch); return true;`,
+    `window.__before = regions("Ostinato 8ths")[0].notes.map((n) => n.pitch); return true;`,
   );
   await page.getByRole("button", { name: "Transpose up 1", exact: true }).click();
   await check(
     "MIDI clip transpose moves every note",
-    `return regions("Stab")[0].notes.every((n, i) => n.pitch === window.__before[i] + 1);`,
+    `return regions("Ostinato 8ths")[0].notes.every((n, i) => n.pitch === window.__before[i] + 1);`,
   );
   await page.screenshot({ path: resolve("screenshots/clip-tools.png") });
   await check(

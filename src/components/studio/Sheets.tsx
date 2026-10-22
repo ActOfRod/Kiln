@@ -140,9 +140,7 @@ export function TrackSheet({
             Delete track
           </button>
         )}
-        {last && (
-          <p className="text-xs text-faint">A song needs at least one track.</p>
-        )}
+        {last && <p className="text-xs text-faint">A song needs at least one track.</p>}
         {error && (
           <p className="text-sm text-record" role="alert">
             {error}
@@ -780,7 +778,7 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
           onClose();
         }}
       >
-        Restore Night Drive
+        Restore Ember Queen demo
       </button>
       <button
         type="button"
