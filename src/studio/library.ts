@@ -5,6 +5,8 @@ export interface LibrarySound {
   favorite: boolean;
   duration: number;
   addedAt: number;
+  /** Imported folder the sound belongs to; absent means "My samples". */
+  folder?: string;
 }
 
 interface StoredSound extends LibrarySound {
@@ -56,7 +58,7 @@ export async function saveSound(sound: StoredSound): Promise<void> {
 
 export async function updateSound(
   id: string,
-  patch: Partial<Pick<LibrarySound, "name" | "tags" | "favorite">>,
+  patch: Partial<Pick<LibrarySound, "name" | "tags" | "favorite" | "folder">>,
 ): Promise<void> {
   const db = await database();
   try {
@@ -85,4 +87,49 @@ export async function updateSound(
 
 export async function deleteSound(id: string): Promise<void> {
   await transact("readwrite", (store) => store.delete(id));
+}
+
+export async function deleteSounds(ids: string[]): Promise<void> {
+  const db = await database();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("sounds", "readwrite");
+      const store = tx.objectStore("sounds");
+      for (const id of ids) store.delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("Sounds could not be deleted."));
+      tx.onabort = () => reject(tx.error ?? new Error("Folder delete was cancelled."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** Folder for an imported file: its directory inside the picked folder, e.g. "Pack / Kicks". */
+export function folderOf(relativePath: string): string | undefined {
+  const parts = relativePath.split("/").filter(Boolean);
+  parts.pop();
+  const folder = parts.join(" / ").trim().slice(0, 80);
+  return folder || undefined;
+}
+
+/** "My samples" first (newest first), then folders A–Z with their sounds in name order. */
+export function groupSounds(sounds: LibrarySound[]): {
+  loose: LibrarySound[];
+  folders: Array<{ name: string; sounds: LibrarySound[] }>;
+} {
+  const loose: LibrarySound[] = [];
+  const byFolder = new Map<string, LibrarySound[]>();
+  for (const sound of sounds) {
+    if (!sound.folder) loose.push(sound);
+    else byFolder.set(sound.folder, [...(byFolder.get(sound.folder) ?? []), sound]);
+  }
+  const order = (a: string, b: string) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+  return {
+    loose,
+    folders: [...byFolder.entries()]
+      .sort(([a], [b]) => order(a, b))
+      .map(([name, list]) => ({ name, sounds: list.sort((a, b) => order(a.name, b.name)) })),
+  };
 }

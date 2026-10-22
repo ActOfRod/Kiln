@@ -470,6 +470,73 @@ button:disabled {
   width: 24px;
   height: 26px;
 }
+.library-folder {
+  border-bottom: 1px solid #221e19;
+}
+.library-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px 4px 6px;
+}
+.library-folder-header:hover {
+  background: #29231c;
+}
+.library-folder-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  text-align: left;
+  color: var(--color-muted);
+}
+.library-folder-toggle strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-fg);
+}
+.library-folder-toggle small {
+  font: 10px var(--font-mono);
+  color: var(--color-faint);
+}
+.library-folder-toggle .chevron {
+  flex-shrink: 0;
+  transition: transform 120ms ease;
+}
+.library-folder-toggle .chevron.open {
+  transform: rotate(90deg);
+}
+.library-folder-header .icon-button {
+  width: 24px;
+  height: 26px;
+}
+.library-folder-confirm {
+  font-size: 10px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: #151310;
+  border: 1px solid var(--color-line);
+}
+.library-folder-confirm.danger {
+  color: #ffb29f;
+}
+.library-folder-items .library-item {
+  padding-left: 22px;
+  border-bottom-color: #1d1915;
+}
+.panel-notice {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--color-muted);
+  background: #211c17;
+}
 .library-details {
   padding: 10px 12px;
   border-top: 1px solid var(--color-line);
@@ -663,6 +730,25 @@ button:disabled {
   color: #c3b7a7;
   background: #252019;
 }
+.bar-number.beyond {
+  color: #4f473d;
+  background: transparent;
+}
+.timeline-runway {
+  pointer-events: none;
+  position: absolute;
+  top: 38px;
+  bottom: 0;
+  z-index: 4;
+  border-left: 2px solid #6b5a45;
+  background: repeating-linear-gradient(
+    -45deg,
+    #0d0b0966,
+    #0d0b0966 6px,
+    #0d0b0933 6px,
+    #0d0b0933 12px
+  );
+}
 .arrange-track {
   height: 92px;
   display: flex;
@@ -736,6 +822,19 @@ button:disabled {
   color: var(--color-faint);
   font: 9px var(--font-mono);
   border: 1px solid #383027;
+}
+.track-menu-button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  align-self: stretch;
+  border-radius: 3px;
+  color: var(--color-faint);
+}
+.track-menu-button:hover,
+.track-menu-button:focus-visible {
+  background: #15120f;
+  color: var(--color-fg);
 }
 .track-switches button.active {
   background: #d09a58;

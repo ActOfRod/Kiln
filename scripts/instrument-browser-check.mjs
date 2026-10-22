@@ -53,7 +53,7 @@ try {
     `while (!useStudio.persist.hasHydrated()) await new Promise((r) => setTimeout(r, 50)); return true;`,
   );
   await run(
-    `s.resetDemo(); useStudio.getState().selectTrack(useStudio.getState().project.tracks.find((t) => t.name === "Keys").id); return true;`,
+    `s.resetDemo(); useStudio.getState().selectTrack(useStudio.getState().project.tracks.find((t) => t.name === "Piano").id); return true;`,
   );
   await page.getByRole("tab", { name: "Instruments" }).click();
   const picker = page.getByRole("region", { name: "Instrument" });
@@ -67,7 +67,7 @@ try {
   await picker.getByRole("radio", { name: /Electric Piano/ }).click();
   await check(
     "choosing an instrument swaps the sound and keeps the notes",
-    `const keys = byName("Keys");
+    `const keys = byName("Piano");
      return keys.device.instrument === "electric-piano" && keys.device.cutoff === 7000 &&
        keys.arrangement.length > 0 && keys.arrangement[0].notes.length > 0;`,
   );
@@ -75,7 +75,7 @@ try {
   await page.waitForTimeout(200);
   await check(
     "playing the keyboard uses the chosen instrument",
-    `return [...engine.performer.previews.keys()].some((k) => k.startsWith(byName("Keys").id + ":"));`,
+    `return [...engine.performer.previews.keys()].some((k) => k.startsWith(byName("Piano").id + ":"));`,
   );
   await page.keyboard.up("a");
   await page.screenshot({ path: resolve("screenshots/instruments.png") });
@@ -94,35 +94,35 @@ try {
   ])
     await check(
       `${id} renders audibly in exports`,
-      `s.setInstrument(byName("Keys").id, ${JSON.stringify(id)});
-       const r = await render("Keys", 5, 6);
+      `s.setInstrument(byName("Piano").id, ${JSON.stringify(id)});
+       const r = await render("Piano", 5, 6);
        return r.finite && r.rms > 0.005 && r.peak < 1.2 || r;`,
     );
   await check(
     "switching back to Analog Synth restores the original keys voice",
-    `const d = byName("Keys").device; return d.waveform === "triangle" && d.cutoff === 2200 && d.decay === 0.5;`,
+    `const d = byName("Piano").device; return d.waveform === "triangle" && d.cutoff === 2200 && d.decay === 0.5;`,
   );
 
-  await run(`s.selectTrack(byName("Drums").id); return true;`);
+  await run(`s.selectTrack(byName("War Drums").id); return true;`);
   await picker.getByRole("radio", { name: /808 Kit/ }).click();
   await check(
     "drum tracks offer only drum kits",
-    `return document.querySelectorAll('[aria-label="Instrument"] [role=radio]').length === 3 && byName("Drums").device.instrument === "808-kit";`,
+    `return document.querySelectorAll('[aria-label="Instrument"] [role=radio]').length === 3 && byName("War Drums").device.instrument === "808-kit";`,
   );
   for (const kit of ["808-kit", "acoustic-kit", "drum-machine"])
     await check(
       `${kit} renders audibly`,
-      `s.setInstrument(byName("Drums").id, ${JSON.stringify(kit)});
-       const r = await render("Drums", 5, 6); return r.finite && r.rms > 0.01 || r;`,
+      `s.setInstrument(byName("War Drums").id, ${JSON.stringify(kit)});
+       const r = await render("War Drums", 5, 6); return r.finite && r.rms > 0.01 || r;`,
     );
 
-  await run(`s.setInstrument(byName("Bass").id, "electric-bass"); return true;`);
+  await run(`s.setInstrument(byName("Low End").id, "electric-bass"); return true;`);
   await run(`useStudio.getState().undo(); return true;`);
   await check(
     "instrument changes are undoable",
-    `return useStudio.getState().project.tracks.find((t) => t.name === "Bass").device.instrument === undefined;`,
+    `return useStudio.getState().project.tracks.find((t) => t.name === "Low End").device.instrument === "sub-bass";`,
   );
-  await run(`s.setInstrument(byName("Bass").id, "electric-bass"); return true;`);
+  await run(`s.setInstrument(byName("Low End").id, "electric-bass"); return true;`);
   await page.reload();
   await page.waitForSelector(".studio-header");
   await run(
@@ -130,11 +130,11 @@ try {
   );
   await check(
     "the chosen instrument is saved with the song",
-    `return useStudio.getState().project.tracks.find((t) => t.name === "Bass").device.instrument === "electric-bass";`,
+    `return useStudio.getState().project.tracks.find((t) => t.name === "Low End").device.instrument === "electric-bass";`,
   );
 
   await run(
-    `useStudio.getState().selectTrack(useStudio.getState().project.tracks.find((t) => t.name === "Keys").id); return true;`,
+    `useStudio.getState().selectTrack(useStudio.getState().project.tracks.find((t) => t.name === "Piano").id); return true;`,
   );
   await page.getByRole("button", { name: /Change instrument/ }).click();
   const sheet = page.getByRole("dialog");

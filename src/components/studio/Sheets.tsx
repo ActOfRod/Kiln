@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, Copy, SlidersHorizontal, Trash2 } from "lucide-react";
 import { engine } from "@/studio/engine";
 import { PATTERNS } from "@/studio/factory";
 import { useStudio } from "@/studio/store";
@@ -17,6 +18,138 @@ const DIVS = [
   { value: 0.5, label: "1/8" },
   { value: 0.75, label: "1/4" },
 ];
+
+/**
+ * Per-track actions. The desktop inspector is hidden on phones and tablets, so this
+ * sheet (opened from every track header) is where tracks are deleted, duplicated and
+ * reordered on small screens.
+ */
+export function TrackSheet({
+  trackId,
+  onClose,
+  onDevice,
+}: {
+  trackId: string;
+  onClose: () => void;
+  onDevice: (trackId: string) => void;
+}) {
+  const track = useStudio((s) => s.project.tracks.find((t) => t.id === trackId));
+  const tracks = useStudio((s) => s.project.tracks);
+  const [confirm, setConfirm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!track) return null;
+  const act = useStudio.getState();
+  const index = tracks.indexOf(track);
+  const regions = track.arrangement.length;
+  const clips = track.clips.filter(Boolean).length;
+  const empty = regions === 0 && clips === 0;
+  const last = tracks.length <= 1;
+  const remove = () => {
+    act.removeTrack(track.id);
+    onClose();
+  };
+  return (
+    <Sheet title={`${track.name} track`} onClose={onClose}>
+      <label className="mb-3 flex flex-col gap-1 text-sm">
+        <span className="text-muted">Track name</span>
+        <input
+          value={track.name}
+          aria-label="Track name"
+          className="h-11 rounded-md bg-surface-2 px-3 text-fg"
+          onChange={(event) => act.renameTrack(track.id, event.target.value)}
+        />
+      </label>
+      <p className="mb-3 text-sm text-muted">
+        {empty
+          ? "This track is empty."
+          : `${regions} ${regions === 1 ? "region" : "regions"} in the arrangement · ${clips} session ${clips === 1 ? "clip" : "clips"}`}
+      </p>
+      <div className="grid gap-2">
+        <button
+          type="button"
+          className="studio-button h-11 justify-start"
+          onClick={() => {
+            onClose();
+            onDevice(track.id);
+          }}
+        >
+          <SlidersHorizontal size={15} />
+          Sound & effects
+        </button>
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            className="studio-button h-11"
+            disabled={index <= 0}
+            onClick={() => act.reorderTrack(track.id, -1)}
+          >
+            <ArrowUp size={15} />
+            Up
+          </button>
+          <button
+            type="button"
+            className="studio-button h-11"
+            disabled={index >= tracks.length - 1}
+            onClick={() => act.reorderTrack(track.id, 1)}
+          >
+            <ArrowDown size={15} />
+            Down
+          </button>
+          <button
+            type="button"
+            className="studio-button h-11"
+            disabled={tracks.length >= 32}
+            onClick={() =>
+              void act
+                .duplicateTrack(track.id)
+                .then(onClose)
+                .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+            }
+          >
+            <Copy size={15} />
+            Copy
+          </button>
+        </div>
+        {confirm ? (
+          <div className="rounded-md bg-surface-2 p-3">
+            <p className="mb-3 text-sm">
+              Delete <strong>{track.name}</strong> and everything on it? You can undo this.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className="studio-button h-11"
+                onClick={() => setConfirm(false)}
+              >
+                Keep track
+              </button>
+              <button type="button" className="studio-button h-11 text-record" onClick={remove}>
+                <Trash2 size={15} />
+                Delete
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="studio-button h-11 justify-start text-record"
+            disabled={last}
+            onClick={() => (empty ? remove() : setConfirm(true))}
+          >
+            <Trash2 size={15} />
+            Delete track
+          </button>
+        )}
+        {last && <p className="text-xs text-faint">A song needs at least one track.</p>}
+        {error && (
+          <p className="text-sm text-record" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </Sheet>
+  );
+}
 
 export function DeviceSheet({ trackId, onClose }: { trackId: string; onClose: () => void }) {
   const track = useStudio((s) => s.project.tracks.find((t) => t.id === trackId));
@@ -645,7 +778,7 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
           onClose();
         }}
       >
-        Restore Night Drive
+        Restore Ember Queen demo
       </button>
       <button
         type="button"

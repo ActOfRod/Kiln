@@ -5,7 +5,7 @@ import {
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Copy, Download, Minus, Plus, Scissors, Trash2, X } from "lucide-react";
+import { Copy, Download, Ellipsis, Minus, Plus, Scissors, Trash2, X } from "lucide-react";
 import { engine } from "@/studio/engine";
 import { compatibleTracks, useStudio } from "@/studio/store";
 import { readSound } from "@/studio/library";
@@ -21,6 +21,7 @@ import {
   sourcePosition,
 } from "@/studio/audio-clip";
 import { clamp, DRUMS, noteName, quantize, uid } from "@/studio/theory";
+import { MAX_BARS } from "@/studio/regions";
 import type { ArrangeClip, Note, Track } from "@/studio/types";
 import { CLIP_BG, cx } from "./ui";
 import { AudioClipView, MidiClipTools } from "./ClipView";
@@ -135,10 +136,21 @@ function startRegionDrag(
   const origin = event.clientX;
   const state = { trackId: options.trackId, clipId: clip.id, copied: false, moved: false };
   const act = useStudio.getState();
+  // Holding a region near the timeline's edge scrolls it, so regions can be dragged
+  // past the visible (and current last) bar; the song grows to fit.
+  const scroller =
+    event.currentTarget instanceof HTMLElement
+      ? event.currentTarget.closest<HTMLElement>(".timeline-scroll")
+      : null;
+  const scroll0 = scroller?.scrollLeft ?? 0;
+  let last: PointerEvent | null = null;
+  let frame = 0;
   act.beginEdit();
   const move = (e: PointerEvent) => {
-    if (Math.abs(e.clientX - origin) > 3) state.moved = true;
-    const beats = (e.clientX - origin) / px;
+    last = e;
+    const scrolled = (scroller?.scrollLeft ?? scroll0) - scroll0;
+    if (Math.abs(e.clientX - origin + scrolled) > 3) state.moved = true;
+    const beats = (e.clientX - origin + scrolled) / px;
     const studio = useStudio.getState();
     const spb = 60 / studio.project.bpm;
     if (mode === "resize") {
@@ -183,7 +195,25 @@ function startRegionDrag(
       }
     } else studio.moveArrangeClip(state.trackId, state.clipId, start);
   };
+  const autoScroll = () => {
+    frame = requestAnimationFrame(autoScroll);
+    if (!scroller || !last || mode === "fade-in" || mode === "fade-out") return;
+    const rect = scroller.getBoundingClientRect();
+    const edge = Math.min(48, rect.width / 6);
+    const step =
+      last.clientX > rect.right - edge
+        ? Math.ceil((last.clientX - (rect.right - edge)) / 4)
+        : last.clientX < rect.left + HEADER + edge && scroller.scrollLeft > 0
+          ? -Math.ceil((rect.left + HEADER + edge - last.clientX) / 4)
+          : 0;
+    if (!step) return;
+    const before = scroller.scrollLeft;
+    scroller.scrollLeft += step;
+    if (scroller.scrollLeft !== before) move(last);
+  };
+  frame = requestAnimationFrame(autoScroll);
   const end = () => {
+    cancelAnimationFrame(frame);
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", end);
     window.removeEventListener("pointercancel", end);
@@ -196,9 +226,10 @@ function startRegionDrag(
 }
 
 const HEADER = 184;
+const RUNWAY_BARS = 8;
 const COLORS = { ember: "#e8893a", clay: "#d4785a", gold: "#e0c06a", sage: "#9fb58a" };
 
-export function ArrangeView() {
+export function ArrangeView({ onTrackMenu }: { onTrackMenu: (trackId: string) => void }) {
   const project = useStudio((s) => s.project);
   const playing = useStudio((s) => s.playing);
   const beat = useStudio((s) => s.beat);
@@ -227,7 +258,10 @@ export function ArrangeView() {
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [playing, px, beat]);
-  const width = project.bars * 4 * px;
+  // Empty bars after the song end give regions somewhere to be dragged; the song grows to fit.
+  const runway = Math.min(RUNWAY_BARS, MAX_BARS - project.bars);
+  const songWidth = project.bars * 4 * px;
+  const width = (project.bars + runway) * 4 * px;
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const peers = useCollab((s) => s.peers);
   const inRoom = useCollab((s) => !!s.room);
@@ -344,6 +378,16 @@ export function ArrangeView() {
                   {px >= 16 || bar % 4 === 0 ? bar + 1 : ""}
                 </button>
               ))}
+              {Array.from({ length: runway }, (_, i) => (
+                <span
+                  key={`runway-${i}`}
+                  className="bar-number beyond"
+                  style={{ width: px * 4 }}
+                  title="Past the song end: drag a region here to extend the song"
+                >
+                  {px >= 16 || (project.bars + i) % 4 === 0 ? project.bars + i + 1 : ""}
+                </span>
+              ))}
             </div>
           </div>
           {project.tracks.map((t, index) => (
@@ -388,6 +432,14 @@ export function ArrangeView() {
                     S
                   </button>
                 </div>
+                <button
+                  className="track-menu-button"
+                  aria-label={`${t.name} track options`}
+                  title="Track options: rename, reorder, duplicate, delete"
+                  onClick={() => onTrackMenu(t.id)}
+                >
+                  <Ellipsis size={14} />
+                </button>
               </div>
               <div
                 className={cx("arrange-lane", dropTarget === t.id && "drop-target")}
@@ -496,6 +548,13 @@ export function ArrangeView() {
             Drop patterns, library sounds or audio files here for a new track. Double-click a MIDI
             lane to draw a region; Alt-drag a region to copy it.
           </div>
+          {runway > 0 && (
+            <div
+              className="timeline-runway"
+              style={{ left: HEADER + songWidth, width: width - songWidth }}
+              aria-hidden="true"
+            />
+          )}
           <PeerPlayheads peers={peers.filter((peer) => peer.playing)} px={px} bars={project.bars} />
           <div ref={head} className="timeline-playhead" style={{ left: HEADER }}>
             <span />

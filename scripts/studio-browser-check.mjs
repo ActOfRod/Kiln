@@ -93,17 +93,17 @@ try {
   browser("find", "role", "button", "click", "--name", "★ Favorites");
   check("favorite collection", 'document.querySelectorAll(".library-item").length===1');
   browser("find", "role", "button", "click", "--name", "All Sounds");
-  browser("click", '[aria-label="Region Soft hats"]');
+  browser("click", '[aria-label="Region Distant drums"]');
   browser("click", '[aria-label="Duplicate region"]');
-  check("region duplicate", `${state} s.project.tracks[0].arrangement.length===5`);
+  check("region duplicate", `${state} s.project.tracks[0].arrangement.length===7`);
   browser("click", '[aria-label="Undo"]');
-  check("undo", `${state} s.project.tracks[0].arrangement.length===4`);
+  check("undo", `${state} s.project.tracks[0].arrangement.length===6`);
   browser("click", '[aria-label="Redo"]');
-  check("redo", `${state} s.project.tracks[0].arrangement.length===5`);
+  check("redo", `${state} s.project.tracks[0].arrangement.length===7`);
   check(
-    "moving a region to the song end preserves its length",
+    "moving a region past the song end grows the song and preserves its length",
     `${state} const t=s.project.tracks[0]; const c=t.arrangement[0]; s.moveArrangeClip(t.id,c.id,999);
-    const moved=useStudio.getState().project.tracks[0].arrangement[0]; const ok=moved.length===c.length&&moved.start+moved.length===s.project.bars*4; useStudio.getState().undo(); ok`,
+    const after=useStudio.getState().project; const moved=after.tracks[0].arrangement[0]; const ok=moved.length===c.length&&moved.start+moved.length===512&&after.bars===128; useStudio.getState().undo(); ok&&useStudio.getState().project.bars===s.project.bars`,
   );
   evaluate(`${state} s.seek(1); true`);
   browser("click", '[aria-label="Split region at playhead"]');
@@ -111,7 +111,7 @@ try {
     "split preserves pattern phase",
     `${state} s.project.tracks[0].arrangement.some(c=>c.start===1&&c.offset===1)`,
   );
-  browser("dblclick", '[aria-label="Region Soft hats"]:first-of-type');
+  browser("dblclick", '[aria-label="Region Distant drums"]:first-of-type');
   browser("click", ".piano-row:first-child .piano-note:first-child");
   browser("fill", '[aria-label="Note velocity"]', "64");
   check(
@@ -149,12 +149,12 @@ try {
     `${state}
     const backup=window.__downloads.find(b=>b.type==="application/json");
     s.newSet(); await useStudio.getState().openProject(new File([backup],"roundtrip.kiln"));
-    const p=useStudio.getState().project; p.tracks.length===5&&p.tracks.some(t=>t.name==="QA tone")`,
+    const p=useStudio.getState().project; p.tracks.length===9&&p.tracks.some(t=>t.name==="QA tone")`,
   );
   browser("open", url);
   check(
     "project survives reload",
-    `${state} await useStudio.persist.rehydrate(); useStudio.getState().project.tracks.length===5`,
+    `${state} await useStudio.persist.rehydrate(); useStudio.getState().project.tracks.length===9`,
   );
   browser("find", "role", "button", "click", "--name", "Export");
   evaluate(

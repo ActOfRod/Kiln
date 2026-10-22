@@ -90,8 +90,8 @@ try {
   await eventually("tempo edit syncs live", async () => (await tempo(bob)) === "101");
 
   await Promise.all([
-    alice.getByLabel("Keys mute", { exact: true }).click(),
-    bob.getByLabel("Lead solo", { exact: true }).click(),
+    alice.getByLabel("Piano mute", { exact: true }).click(),
+    bob.getByLabel("Horns solo", { exact: true }).click(),
   ]);
   for (const [name, page] of [
     ["Alice", alice],
@@ -100,11 +100,11 @@ try {
     await eventually(
       `simultaneous edits converge for ${name}`,
       async () =>
-        (await pressed(page, "Keys mute")) === "true" &&
-        (await pressed(page, "Lead solo")) === "true",
+        (await pressed(page, "Piano mute")) === "true" &&
+        (await pressed(page, "Horns solo")) === "true",
     );
 
-  await alice.locator('[aria-label="Region Soft hats"]').first().click();
+  await alice.locator('[aria-label="Region Distant drums"]').first().click();
   await eventually(
     "selection is visible",
     async () => (await bob.locator(".peer-region-tag", { hasText: "Alice" }).count()) > 0,
@@ -119,9 +119,9 @@ try {
     async () => (await alice.locator(".peer-cursor", { hasText: "Bob" }).count()) > 0,
   );
 
-  const region = alice.locator('[aria-label="Region Night bass"]');
+  const region = alice.locator('[aria-label="Region Ostinato 8ths"]');
   const before = await bob
-    .locator('[aria-label="Region Night bass"]')
+    .locator('[aria-label="Region Ostinato 8ths"]')
     .evaluate((n) => n.style.left);
   const box = await region.boundingBox();
   await alice.mouse.move(box.x + 40, box.y + 30);
@@ -130,7 +130,7 @@ try {
   await alice.mouse.up();
   await eventually("dragged region moves for collaborators", async () => {
     const after = await bob
-      .locator('[aria-label="Region Night bass"]')
+      .locator('[aria-label="Region Ostinato 8ths"]')
       .evaluate((n) => n.style.left);
     return parseFloat(after) === parseFloat(before) - 96;
   });
@@ -170,11 +170,11 @@ try {
   await bob.getByRole("button", { name: "Undo" }).click();
   await eventually("undo only reverts your own edits", async () => {
     const state = await Promise.all([
-      pressed(alice, "Lead solo"),
-      pressed(alice, "Keys mute"),
+      pressed(alice, "Horns solo"),
+      pressed(alice, "Piano mute"),
       tempo(alice),
-      pressed(bob, "Lead solo"),
-      pressed(bob, "Keys mute"),
+      pressed(bob, "Horns solo"),
+      pressed(bob, "Piano mute"),
       tempo(bob),
     ]);
     return state.join() === "false,true,101,false,true,101" || state.join();

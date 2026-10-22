@@ -22,7 +22,14 @@ import {
 } from "./factory";
 import { engine, type Snapshot } from "./engine";
 import { clamp, nextBar, quantize, uid } from "./theory";
-import { fitRegion, splitRegion, transformMidi, type MidiTransform } from "./regions";
+import {
+  MAX_BEATS,
+  fitRegion,
+  growBars,
+  splitRegion,
+  transformMidi,
+  type MidiTransform,
+} from "./regions";
 import { assetOf, clipWindow, naturalBeats, playbackRate, requiredAssets } from "./audio-clip";
 import { downloadBlob, projectFileSchema, projectSchema } from "./project-file";
 import { idbGet, idbPutMany } from "./samples";
@@ -694,34 +701,43 @@ export const useStudio = create<StudioState>()(
           const track = s.project.tracks.find((item) => item.id === trackId);
           if (!pattern || !track || pattern.kind !== track.kind)
             return { audioError: "Choose a pattern matching the track's instrument." };
+          const begin = clamp(quantize(start, 0.25), 0, MAX_BEATS - 0.25);
+          const bars = growBars(s.project.bars, begin + 16);
           const region: ArrangeClip = fitRegion(
             {
               id: uid("arr"),
               name: pattern.name,
               color: track.color,
-              start: quantize(start, 0.25),
+              start: begin,
               length: 16,
               patternLength: pattern.length,
               notes: pattern.notes.map((note) => ({ ...note, id: uid("n") })),
             },
-            s.project.bars,
+            bars,
           );
           return {
-            project: mapTracks(s.project, trackId, (t) => ({
+            project: mapTracks({ ...s.project, bars }, trackId, (t) => ({
               ...t,
               arrangement: [...t.arrangement, region],
             })),
           };
         }),
       updateRegion: (trackId, clipId, patch) =>
-        set((s) => ({
-          project: mapTracks(s.project, trackId, (t) => ({
-            ...t,
-            arrangement: t.arrangement.map((clip) =>
-              clip.id === clipId ? fitRegion({ ...clip, ...patch }, s.project.bars) : clip,
-            ),
-          })),
-        })),
+        set((s) => {
+          const clip = s.project.tracks
+            .find((t) => t.id === trackId)
+            ?.arrangement.find((c) => c.id === clipId);
+          if (!clip) return s;
+          // Resizing past the end of the song extends the song instead of clipping the region.
+          const next = { ...clip, ...patch };
+          const bars = growBars(s.project.bars, next.start + next.length);
+          return {
+            project: mapTracks({ ...s.project, bars }, trackId, (t) => ({
+              ...t,
+              arrangement: t.arrangement.map((c) => (c.id === clipId ? fitRegion(next, bars) : c)),
+            })),
+          };
+        }),
       moveRegion: (fromTrackId, clipId, toTrackId, start, copy = false) => {
         const state = get();
         const from = state.project.tracks.find((t) => t.id === fromTrackId);
@@ -735,7 +751,7 @@ export const useStudio = create<StudioState>()(
         const placed: ArrangeClip = {
           ...clip,
           id: copy ? uid("arr") : clip.id,
-          start: clamp(quantize(start, 0.25), 0, state.project.bars * 4 - clip.length),
+          start: clamp(quantize(start, 0.25), 0, MAX_BEATS - clip.length),
           notes: copy ? clip.notes.map((n) => ({ ...n, id: uid("n") })) : clip.notes,
         };
         if (from.kind === "sample" && from.id !== to.id) {
@@ -748,6 +764,7 @@ export const useStudio = create<StudioState>()(
         set((s) => ({
           project: {
             ...s.project,
+            bars: growBars(s.project.bars, placed.start + placed.length),
             tracks: s.project.tracks.map((track) => {
               let arrangement = track.arrangement;
               if (track.id === fromTrackId && !copy)
@@ -836,9 +853,10 @@ export const useStudio = create<StudioState>()(
             playbackRate(clip, s.project.bpm),
             s.project.bpm,
           );
-          const length = Math.max(0.25, Math.min(beats, s.project.bars * 4 - clip.start));
+          const length = Math.max(0.25, Math.min(beats, MAX_BEATS - clip.start));
+          const bars = growBars(s.project.bars, clip.start + length);
           return {
-            project: mapTracks(s.project, trackId, (t) => ({
+            project: mapTracks({ ...s.project, bars }, trackId, (t) => ({
               ...t,
               arrangement: t.arrangement.map((c) =>
                 c.id === clipId ? { ...c, length, patternLength: length, offset: 0 } : c,
@@ -1076,19 +1094,24 @@ export const useStudio = create<StudioState>()(
         }),
 
       moveArrangeClip: (trackId, clipId, start) =>
-        set((s) => ({
-          project: mapTracks(s.project, trackId, (track) => ({
-            ...track,
-            arrangement: track.arrangement.map((clip) =>
-              clip.id === clipId
-                ? {
-                    ...clip,
-                    start: clamp(quantize(start, 0.25), 0, s.project.bars * 4 - clip.length),
-                  }
-                : clip,
-            ),
-          })),
-        })),
+        set((s) => {
+          const clip = s.project.tracks
+            .find((t) => t.id === trackId)
+            ?.arrangement.find((c) => c.id === clipId);
+          if (!clip) return s;
+          // Dragging past the last bar grows the song, up to the 128-bar limit.
+          const begin = clamp(quantize(start, 0.25), 0, MAX_BEATS - clip.length);
+          const bars = growBars(s.project.bars, begin + clip.length);
+          if (begin === clip.start && bars === s.project.bars) return s;
+          return {
+            project: mapTracks({ ...s.project, bars }, trackId, (track) => ({
+              ...track,
+              arrangement: track.arrangement.map((c) =>
+                c.id === clipId ? { ...c, start: begin } : c,
+              ),
+            })),
+          };
+        }),
 
       deleteArrangeClip: (trackId, clipId) =>
         set((s) => ({
