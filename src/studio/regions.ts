@@ -32,6 +32,15 @@ export function splitRegion(
   ];
 }
 
+/** The longest song, in bars, and in beats. */
+export const MAX_BARS = 128;
+export const MAX_BEATS = MAX_BARS * 4;
+
+/** Song length that also covers a region ending at `end` beats (never shrinks, capped). */
+export function growBars(bars: number, end: number): number {
+  return Math.min(MAX_BARS, Math.max(bars, Math.ceil(end / 4 - 1e-9)));
+}
+
 export function fitRegion(clip: ArrangeClip, bars: number): ArrangeClip {
   const start = Math.max(0, Math.min(bars * 4 - 0.25, clip.start));
   return { ...clip, start, length: Math.max(0.25, Math.min(clip.length, bars * 4 - start)) };

@@ -25,7 +25,7 @@ import { ArrangeView } from "./ArrangeView";
 import { MixView } from "./MixView";
 import { PlayView } from "./PlayView";
 import { SessionView } from "./SessionView";
-import { DeviceSheet, EditorSheet, PatternSheet } from "./Sheets";
+import { DeviceSheet, EditorSheet, PatternSheet, TrackSheet } from "./Sheets";
 import { LibraryBrowser } from "./LibraryBrowser";
 import { TrackInspector } from "./TrackInspector";
 import { ExportDialog } from "./ExportDialog";
@@ -53,7 +53,7 @@ export function StudioApp() {
   const error = useStudio((s) => s.audioError);
   const inRoom = useCollab((s) => !!s.room);
   const [sheet, setSheet] = useState<
-    "device" | "editor" | "pattern" | "export" | "add" | "project" | "lineage" | null
+    "device" | "track" | "editor" | "pattern" | "export" | "add" | "project" | "lineage" | null
   >(null);
   const [deviceTrack, setDeviceTrack] = useState<string | null>(null);
   const [library, setLibrary] = useState(true);
@@ -117,6 +117,11 @@ export function StudioApp() {
   const openDevice = (id?: string) => {
     setDeviceTrack(id ?? useStudio.getState().selectedTrackId);
     setSheet("device");
+  };
+  const openTrack = (id: string) => {
+    useStudio.getState().selectTrack(id);
+    setDeviceTrack(id);
+    setSheet("track");
   };
   return (
     <div
@@ -300,7 +305,7 @@ export function StudioApp() {
           className="studio-main"
           aria-label={`${views.find((item) => item.id === view)?.label} workspace`}
         >
-          {view === "arrange" && <ArrangeView />}
+          {view === "arrange" && <ArrangeView onTrackMenu={openTrack} />}
           {view === "session" && (
             <SessionView
               onEdit={() => setSheet("editor")}
@@ -342,6 +347,9 @@ export function StudioApp() {
       />
       {sheet === "device" && deviceTrack && (
         <DeviceSheet trackId={deviceTrack} onClose={() => setSheet(null)} />
+      )}
+      {sheet === "track" && deviceTrack && (
+        <TrackSheet trackId={deviceTrack} onClose={() => setSheet(null)} onDevice={openDevice} />
       )}
       {sheet === "editor" && <EditorSheet onClose={() => setSheet(null)} />}
       {sheet === "pattern" && <PatternSheet onClose={() => setSheet(null)} />}
