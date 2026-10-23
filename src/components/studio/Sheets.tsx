@@ -6,6 +6,7 @@ import { useStudio } from "@/studio/store";
 import { DRUMS, noteName } from "@/studio/theory";
 import type { Track, TrackKind, Wave } from "@/studio/types";
 import { Field, Sheet, cx } from "./ui";
+import { useLayout } from "./layout";
 import { InstrumentPicker } from "./InstrumentPicker";
 import { instrumentOf } from "@/studio/instruments";
 
@@ -556,6 +557,7 @@ export function EditorSheet({ onClose }: { onClose: () => void }) {
   const clip = track && slot ? track.clips[slot.scene] : null;
   const toggleStep = useStudio((s) => s.toggleStep);
   const setClipLength = useStudio((s) => s.setClipLength);
+  const expanded = useLayout((s) => s.sheetMax);
   const playStep = useStudio((s) => {
     if (!slot || !clip) return -1;
     const launch = s.launched[slot.trackId];
@@ -585,7 +587,7 @@ export function EditorSheet({ onClose }: { onClose: () => void }) {
   const steps = Math.round(clip.length * 4);
 
   return (
-    <Sheet title={clip.name} onClose={onClose} wide>
+    <Sheet title={clip.name} onClose={onClose} wide expandable>
       <div className="mb-3 flex gap-2">
         {[4, 8, 16].map((beats) => (
           <button
@@ -602,11 +604,20 @@ export function EditorSheet({ onClose }: { onClose: () => void }) {
         ))}
       </div>
       <p className="mb-2 text-sm text-muted">Tap a cell to paint or erase a note.</p>
-      <div className="overflow-auto rounded-md border border-line">
-        <div className="inline-flex min-w-full flex-col">
+      <div
+        className="overflow-auto rounded-md border border-line"
+        // Expanded: the grid stretches to fill the window instead of keeping 44px cells.
+        style={expanded ? { height: "calc(100dvh - 176px)" } : undefined}
+      >
+        <div className={cx("inline-flex min-w-full flex-col", expanded && "min-h-full")}>
           {rows.map((row) => (
-            <div key={row.pitch} className="flex">
-              <div className="sticky left-0 z-10 flex h-11 w-16 shrink-0 items-center border-b border-r border-line bg-surface px-2 text-xs text-muted">
+            <div key={row.pitch} className={cx("flex", expanded && "min-h-11 flex-1")}>
+              <div
+                className={cx(
+                  "sticky left-0 z-10 flex w-16 shrink-0 items-center border-b border-r border-line bg-surface px-2 text-xs text-muted",
+                  !expanded && "h-11",
+                )}
+              >
                 {row.label}
               </div>
               {Array.from({ length: steps }, (_, step) => {
@@ -622,7 +633,8 @@ export function EditorSheet({ onClose }: { onClose: () => void }) {
                     aria-label={`${row.label} step ${step + 1}`}
                     aria-pressed={on}
                     className={cx(
-                      "h-11 w-11 shrink-0 border-b border-r border-line",
+                      "border-b border-r border-line",
+                      expanded ? "min-h-11 min-w-11 flex-1" : "h-11 w-11 shrink-0",
                       on ? "bg-accent" : beat ? "bg-surface-3" : "bg-surface-2",
                       playStep === step && "ring-2 ring-fg ring-inset",
                     )}
