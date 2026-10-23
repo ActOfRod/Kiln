@@ -56,6 +56,13 @@ the song automatically (up to 128 bars). Every track header has a **⋯** button
 for renaming, reordering, duplicating and deleting the track — this is how tracks
 are managed on phones and tablets, where the inspector is hidden.
 
+The library, inspector and clip editor are resizable: drag the divider at their
+edge (or focus it and use the arrow keys; double-click resets it). The expand
+button in the clip editor — and in the session step editor — fills the window
+for focused note editing, and the grid grows to use the space; press the button
+again (or Esc in the clip editor) to restore it. Pane sizes are remembered in
+this browser.
+
 Import audio into the library, audition it, then drag it in or use **+** for a
 new track. **Import files** puts single sounds in _My samples_; **Folder** imports
 a whole folder and keeps its sounds grouped (sub-folders too). Collapse, delete or

@@ -308,6 +308,7 @@ button:disabled {
   flex: 1;
 }
 .studio-workspace {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -361,8 +362,10 @@ button:disabled {
   text-decoration: underline;
 }
 .library-panel {
-  width: 246px;
-  min-width: 246px;
+  width: var(--library-w, 246px);
+  min-width: 0;
+  max-width: 45vw;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--color-line);
@@ -582,8 +585,10 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 .track-inspector {
-  width: 222px;
-  min-width: 222px;
+  width: var(--inspector-w, 222px);
+  min-width: 0;
+  max-width: 40vw;
+  flex-shrink: 0;
   border-left: 1px solid var(--color-line);
   background: #191714;
   display: flex;
@@ -938,13 +943,32 @@ button:disabled {
   border-radius: 2px;
   flex-shrink: 0;
 }
+.editor-dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  height: 280px;
+  min-height: 140px;
+  max-height: calc(100% - 96px);
+}
+.editor-dock:has(.clip-view) {
+  height: 292px;
+}
+.editor-dock.maximized {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  height: auto;
+  max-height: none;
+}
+.editor-dock > section {
+  flex: 1;
+  min-height: 0;
+}
 .region-editor {
   display: flex;
   flex-direction: column;
-  height: 280px;
-  max-height: 45%;
-  flex-shrink: 0;
-  min-height: 130px;
   background: #171410;
   border-top: 1px solid #59432d;
 }
@@ -1059,12 +1083,10 @@ button:disabled {
 }
 @media (min-width: 1600px) {
   .library-panel {
-    width: 280px;
-    min-width: 280px;
+    width: var(--library-w, 280px);
   }
   .track-inspector {
-    width: 250px;
-    min-width: 250px;
+    width: var(--inspector-w, 250px);
   }
 }
 @media (max-width: 1150px) {
@@ -1075,7 +1097,8 @@ button:disabled {
   .project-title {
     max-width: 140px;
   }
-  .track-inspector {
+  .track-inspector,
+  .inspector-resizer {
     display: none;
   }
   .shortcut-hint {
@@ -1118,9 +1141,11 @@ button:disabled {
     width: 17px;
     height: 17px;
   }
+  .library-resizer {
+    display: none;
+  }
   .library-panel {
     width: 200px;
-    min-width: 200px;
     position: absolute;
     z-index: 40;
     top: 0;
@@ -1152,6 +1177,68 @@ button:disabled {
   .region-toolbar {
     overflow-x: auto;
   }
+}
+
+/* Resizable panes */
+.pane-resizer {
+  position: relative;
+  z-index: 25;
+  flex-shrink: 0;
+  touch-action: none;
+  outline: none;
+}
+.pane-resizer::after {
+  content: "";
+  position: absolute;
+  background: transparent;
+  transition: background 120ms;
+}
+.pane-resizer.x {
+  width: 9px;
+  margin: 0 -4px;
+  cursor: col-resize;
+}
+.pane-resizer.x::after {
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 3px;
+}
+.pane-resizer.y {
+  height: 9px;
+  cursor: row-resize;
+}
+.pane-resizer.y::after {
+  left: 0;
+  right: 0;
+  top: 3px;
+  height: 3px;
+}
+.pane-resizer:hover::after,
+.pane-resizer:focus-visible::after,
+.pane-resizer.dragging::after {
+  background: var(--color-accent);
+}
+.editor-resizer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -5px;
+}
+body.resizing-x,
+body.resizing-x * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+body.resizing-y,
+body.resizing-y * {
+  cursor: row-resize !important;
+  user-select: none;
+}
+.sheet-expanded {
+  max-width: none;
+  border-radius: 0;
+  margin: 0;
 }
 
 /* Drag targets, audio-region fades and clip view */
@@ -1207,10 +1294,6 @@ button:disabled {
 .clip-view {
   display: flex;
   flex-direction: column;
-  height: 292px;
-  max-height: 48%;
-  min-height: 170px;
-  flex-shrink: 0;
   background: #171410;
   border-top: 1px solid #59432d;
 }

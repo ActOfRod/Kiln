@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { ClipColor } from "@/studio/types";
+import { MaximizeButton, useLayout } from "./layout";
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
@@ -19,12 +20,17 @@ export function Sheet({
   onClose,
   children,
   wide = false,
+  expandable = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  /** Offer a button that grows the dialog to fill the whole window (remembered). */
+  expandable?: boolean;
 }) {
+  const sheetMax = useLayout((s) => s.sheetMax);
+  const expanded = expandable && sheetMax;
   return (
     <Dialog.Root
       open
@@ -38,20 +44,33 @@ export function Sheet({
           aria-label={title}
           aria-describedby={undefined}
           className={cx(
-            "safe-bottom shadow-sheet fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full flex-col rounded-t-lg bg-surface md:top-1/2 md:bottom-auto md:-translate-y-1/2",
-            wide ? "max-w-3xl" : "max-w-lg",
+            "safe-bottom shadow-sheet fixed inset-x-0 bottom-0 z-50 mx-auto flex w-full flex-col bg-surface",
+            expanded
+              ? "sheet-expanded top-0 h-dvh max-h-dvh"
+              : "max-h-[88dvh] rounded-t-lg md:top-1/2 md:bottom-auto md:-translate-y-1/2",
+            !expanded && (wide ? "max-w-3xl" : "max-w-lg"),
           )}
         >
           <div className="flex h-14 shrink-0 items-center justify-between gap-3 px-4">
             <Dialog.Title className="text-base font-semibold text-balance">{title}</Dialog.Title>
-            <button
-              type="button"
-              aria-label="Close"
-              className="press grid h-11 w-11 place-items-center rounded-md bg-surface-2 text-fg"
-              onClick={onClose}
-            >
-              <X className="size-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {expandable && (
+                <MaximizeButton
+                  active={expanded}
+                  what="editor"
+                  hint={false}
+                  onToggle={() => useLayout.getState().set({ sheetMax: !sheetMax })}
+                />
+              )}
+              <button
+                type="button"
+                aria-label="Close"
+                className="press grid h-11 w-11 place-items-center rounded-md bg-surface-2 text-fg"
+                onClick={onClose}
+              >
+                <X className="size-5" />
+              </button>
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">{children}</div>
         </Dialog.Content>

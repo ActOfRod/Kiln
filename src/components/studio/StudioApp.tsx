@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   AudioWaveform,
   Circle,
@@ -32,6 +32,7 @@ import { ExportDialog } from "./ExportDialog";
 import { CollabButton, ShareDialog } from "./Collaboration";
 import { initCollab, useCollab } from "@/collab/session";
 import { Sheet, cx } from "./ui";
+import { ResizeHandle, sidePaneRoom, useLayout } from "./layout";
 import lineageHtml from "../../../docs/lineage/index.html?raw";
 
 const views: Array<{ id: StudioView; label: string; icon: typeof LayoutGrid }> = [
@@ -52,6 +53,8 @@ export function StudioApp() {
   const canRedo = useStudio((s) => s.future.length > 0);
   const error = useStudio((s) => s.audioError);
   const inRoom = useCollab((s) => !!s.room);
+  const libraryWidth = useLayout((s) => s.libraryWidth);
+  const inspectorWidth = useLayout((s) => s.inspectorWidth);
   const [sheet, setSheet] = useState<
     "device" | "track" | "editor" | "pattern" | "export" | "add" | "project" | "lineage" | null
   >(null);
@@ -71,6 +74,7 @@ export function StudioApp() {
 
   useEffect(() => {
     if (window.innerWidth < 760) setLibrary(false);
+    void useLayout.persist.rehydrate();
     let stopCollab: (() => void) | undefined;
     void Promise.resolve(useStudio.persist.rehydrate()).then(() => {
       stopCollab = initCollab();
@@ -299,8 +303,35 @@ export function StudioApp() {
           </button>
         </div>
       )}
-      <div className="studio-workspace">
-        {library && <LibraryBrowser />}
+      <div
+        className="studio-workspace"
+        style={
+          {
+            ...(libraryWidth && { "--library-w": `${libraryWidth}px` }),
+            ...(inspectorWidth && { "--inspector-w": `${inspectorWidth}px` }),
+          } as CSSProperties
+        }
+      >
+        {library && (
+          <>
+            <LibraryBrowser />
+            <ResizeHandle
+              axis="x"
+              label="Resize library"
+              className="library-resizer"
+              value={libraryWidth}
+              measure={(handle) =>
+                handle.previousElementSibling?.getBoundingClientRect().width ?? 246
+              }
+              bounds={(handle) => [
+                180,
+                Math.min(560, sidePaneRoom(handle, handle.previousElementSibling)),
+              ]}
+              onChange={(size) => useLayout.getState().set({ libraryWidth: size })}
+              onReset={() => useLayout.getState().set({ libraryWidth: null })}
+            />
+          </>
+        )}
         <main
           className="studio-main"
           aria-label={`${views.find((item) => item.id === view)?.label} workspace`}

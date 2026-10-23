@@ -4,6 +4,7 @@ import {
   useState,
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { Copy, Download, Ellipsis, Minus, Plus, Scissors, Trash2, X } from "lucide-react";
 import { engine } from "@/studio/engine";
@@ -25,6 +26,13 @@ import { MAX_BARS } from "@/studio/regions";
 import type { ArrangeClip, Note, Track } from "@/studio/types";
 import { CLIP_BG, cx } from "./ui";
 import { AudioClipView, MidiClipTools } from "./ClipView";
+import {
+  EditorMaximize,
+  ResizeHandle,
+  useElementSize,
+  useEscapeToRestore,
+  useLayout,
+} from "./layout";
 import { PEER_COLORS, setCursor, setSelection, useCollab } from "@/collab/session";
 import type { Presence } from "@/collab/backend";
 
@@ -601,24 +609,56 @@ export function ArrangeView({ onTrackMenu }: { onTrackMenu: (trackId: string) =>
           </button>
         </div>
       )}
-      {editor &&
-        track &&
-        selectedRegion &&
-        (track.kind === "sample" ? (
-          <AudioClipView
-            key={selectedRegion.id}
-            track={track}
-            clip={selectedRegion}
-            onClose={() => setEditor(false)}
-          />
-        ) : (
-          <RegionEditor
-            key={selectedRegion.id}
-            track={track}
-            clip={selectedRegion}
-            onClose={() => setEditor(false)}
-          />
-        ))}
+      {editor && track && selectedRegion && (
+        <EditorDock>
+          {track.kind === "sample" ? (
+            <AudioClipView
+              key={selectedRegion.id}
+              track={track}
+              clip={selectedRegion}
+              onClose={() => setEditor(false)}
+            />
+          ) : (
+            <RegionEditor
+              key={selectedRegion.id}
+              track={track}
+              clip={selectedRegion}
+              onClose={() => setEditor(false)}
+            />
+          )}
+        </EditorDock>
+      )}
+    </div>
+  );
+}
+
+/** Holds the clip editor under the timeline: drag its top edge to resize, or expand it. */
+function EditorDock({ children }: { children: ReactNode }) {
+  const height = useLayout((s) => s.editorHeight);
+  const maximized = useLayout((s) => s.editorMax);
+  useEscapeToRestore(maximized, () => useLayout.getState().set({ editorMax: false }));
+  return (
+    <div
+      className={cx("editor-dock", maximized && "maximized")}
+      style={!maximized && height ? { height } : undefined}
+    >
+      {!maximized && (
+        <ResizeHandle
+          axis="y"
+          direction={-1}
+          label="Resize clip editor"
+          className="editor-resizer"
+          value={height}
+          measure={(handle) => handle.parentElement?.getBoundingClientRect().height ?? 280}
+          bounds={(handle) => [
+            140,
+            (handle.parentElement?.parentElement?.getBoundingClientRect().height ?? 600) - 96,
+          ]}
+          onChange={(size) => useLayout.getState().set({ editorHeight: size })}
+          onReset={() => useLayout.getState().set({ editorHeight: null })}
+        />
+      )}
+      {children}
     </div>
   );
 }
@@ -827,7 +867,11 @@ function RegionEditor({
           pitch: highest - i,
           name: noteName(highest - i),
         }));
-  const cell = 22;
+  const [scroll, area] = useElementSize<HTMLDivElement>();
+  const steps = clip.patternLength * 4;
+  // Grow the grid to fill a resized or full-window editor; never shrink below the compact size.
+  const cell = clamp(Math.floor((area.width - 60) / steps), 22, 96);
+  const rowHeight = clamp(Math.floor(area.height / rows.length), 18, 64);
   return (
     <section className="region-editor" aria-label="Region editor">
       <div className="editor-title">
@@ -839,9 +883,12 @@ function RegionEditor({
         <span className="text-xs text-muted">
           {track.kind === "sample" ? "AUDIO REGION" : "PIANO ROLL"}
         </span>
-        <button className="icon-button ml-auto" aria-label="Close region editor" onClick={onClose}>
-          <X size={14} />
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          <EditorMaximize />
+          <button className="icon-button" aria-label="Close region editor" onClick={onClose}>
+            <X size={14} />
+          </button>
+        </div>
       </div>
       {
         <>
@@ -949,15 +996,15 @@ function RegionEditor({
               </span>
             )}
           </div>
-          <div className="piano-scroll">
-            <div style={{ width: 60 + clip.patternLength * 4 * cell }}>
+          <div className="piano-scroll" ref={scroll}>
+            <div style={{ width: 60 + steps * cell }}>
               {rows.map((row) => (
-                <div key={row.pitch} className="piano-row">
-                  <span>{row.name}</span>
+                <div key={row.pitch} className="piano-row" style={{ height: rowHeight }}>
+                  <span style={{ lineHeight: `${rowHeight}px` }}>{row.name}</span>
                   <div
                     className="piano-cells"
                     style={{
-                      width: clip.patternLength * 4 * cell,
+                      width: steps * cell,
                       backgroundSize: `${cell * 4}px 100%, ${cell}px 100%`,
                     }}
                     onClick={(event) => {
@@ -986,6 +1033,7 @@ function RegionEditor({
                           style={{
                             left: note.start * 4 * cell,
                             width: Math.max(5, note.duration * 4 * cell - 2),
+                            height: rowHeight - 5,
                             opacity: 0.5 + note.velocity * 0.5,
                           }}
                           onClick={() => setSelected(note.id)}

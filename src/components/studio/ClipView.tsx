@@ -7,6 +7,7 @@ import { assetOf, clipWindow, naturalBeats, playbackRate } from "@/studio/audio-
 import { clamp } from "@/studio/theory";
 import type { ArrangeClip, ClipColor, Track } from "@/studio/types";
 import { cx } from "./ui";
+import { EditorMaximize } from "./layout";
 
 const CLIP_SWATCHES: Record<ClipColor, string> = {
   ember: "#e8893a",
@@ -188,9 +189,12 @@ export function AudioClipView({
             />
           ))}
         </div>
-        <button className="icon-button ml-auto" aria-label="Close clip editor" onClick={onClose}>
-          <X size={14} />
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          <EditorMaximize />
+          <button className="icon-button" aria-label="Close clip editor" onClick={onClose}>
+            <X size={14} />
+          </button>
+        </div>
       </header>
       <div className="clip-body">
         <div className="clip-column">
