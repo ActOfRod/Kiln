@@ -133,3 +133,41 @@ export function groupSounds(sounds: LibrarySound[]): {
       .map(([name, list]) => ({ name, sounds: list.sort((a, b) => order(a.name, b.name)) })),
   };
 }
+
+export interface FolderNode {
+  /** Last segment, e.g. "Kicks". */
+  name: string;
+  /** Full folder name as stored on sounds, e.g. "Pack / Kicks". */
+  path: string;
+  sounds: LibrarySound[];
+  children: FolderNode[];
+  /** Sounds in this folder and every sub-folder. */
+  count: number;
+}
+
+/** Nest "Pack / Kicks" style folder names (from groupSounds) into a browsable tree. */
+export function folderTree(folders: Array<{ name: string; sounds: LibrarySound[] }>): FolderNode[] {
+  const roots: FolderNode[] = [];
+  for (const group of folders) {
+    let level = roots;
+    let path = "";
+    let node: FolderNode | undefined;
+    for (const part of group.name.split(" / ")) {
+      path = path ? `${path} / ${part}` : part;
+      node = level.find((item) => item.path === path);
+      if (!node) {
+        node = { name: part, path, sounds: [], children: [], count: 0 };
+        level.push(node);
+      }
+      node.count += group.sounds.length;
+      level = node.children;
+    }
+    node?.sounds.push(...group.sounds);
+  }
+  return roots;
+}
+
+/** Whether a sound's folder is `path` or one of its sub-folders. */
+export function inFolder(folder: string | undefined, path: string): boolean {
+  return folder === path || !!folder?.startsWith(`${path} / `);
+}

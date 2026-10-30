@@ -63,6 +63,17 @@ for focused note editing, and the grid grows to use the space; press the button
 again (or Esc in the clip editor) to restore it. Pane sizes are remembered in
 this browser.
 
+The transport works like Ableton's: **Space** plays from the start point (where
+you last started playback or clicked the ruler) and stopping returns there;
+**Shift+Space** stops in place and continues from that spot. Space works even
+while the tempo field is focused, and Enter confirms a typed tempo.
+
+The library is a folder browser: **Favorites**, KILN patterns in **Drums**,
+**Bass**, **Keys** and **Lead** folders, then your audio in _My samples_ and
+imported folders (sub-folders nest). Click any pattern or sound to hear it on
+its own; the song isn't changed until you drag it onto a track (or below the
+tracks for a new one) or press **+**. Searching opens every folder with a match.
+
 Import audio into the library, audition it, then drag it in or use **+** for a
 new track. **Import files** puts single sounds in _My samples_; **Folder** imports
 a whole folder and keeps its sounds grouped (sub-folders too). Collapse, delete or

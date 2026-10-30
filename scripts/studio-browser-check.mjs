@@ -89,10 +89,12 @@ try {
   browser("fill", '[aria-label="Search library"]', "x");
   browser("press", process.platform === "darwin" ? "Meta+a" : "Control+a");
   browser("press", "Backspace");
+  browser("click", '.library-folder-toggle:has-text("Drums")');
   browser("click", '[aria-label="Favorite Soft hats"]');
-  browser("find", "role", "button", "click", "--name", "★ Favorites");
+  browser("click", '.library-folder-toggle:has-text("Drums")');
+  browser("click", '.library-folder-toggle:has-text("Favorites")');
   check("favorite collection", 'document.querySelectorAll(".library-item").length===1');
-  browser("find", "role", "button", "click", "--name", "All Sounds");
+  browser("click", '.library-folder-toggle:has-text("Favorites")');
   browser("click", '[aria-label="Region Distant drums"]');
   browser("click", '[aria-label="Duplicate region"]');
   check("region duplicate", `${state} s.project.tracks[0].arrangement.length===7`);

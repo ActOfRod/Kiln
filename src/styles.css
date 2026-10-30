@@ -404,23 +404,6 @@ button:disabled {
   color: var(--color-fg);
   outline: none;
 }
-.library-categories {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 0 12px 12px;
-}
-.library-categories button {
-  border-radius: 4px;
-  padding: 4px 7px;
-  font-size: 10px;
-  text-transform: capitalize;
-  color: var(--color-faint);
-}
-.library-categories button.active {
-  background: #38291d;
-  color: #f2b580;
-}
 .library-results {
   flex: 1;
   overflow-y: auto;
@@ -480,7 +463,7 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px 4px 6px;
+  padding: 4px 10px 4px calc(6px + var(--depth, 0) * 14px);
 }
 .library-folder-header:hover {
   background: #29231c;
@@ -530,9 +513,17 @@ button:disabled {
 .library-folder-confirm.danger {
   color: #ffb29f;
 }
-.library-folder-items .library-item {
-  padding-left: 22px;
+.library-folder-items > .library-item {
+  padding-left: calc(22px + var(--depth, 0) * 14px);
   border-bottom-color: #1d1915;
+}
+.library-folder-items > .library-folder {
+  border-bottom-color: #1d1915;
+}
+.library-folder-empty {
+  padding: 6px 12px 10px calc(28px + var(--depth, 0) * 14px);
+  font-size: 11px;
+  color: var(--color-faint);
 }
 .panel-notice {
   padding: 10px;
