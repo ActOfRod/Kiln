@@ -45,6 +45,8 @@ export interface StudioState {
   recording: boolean;
   metronome: boolean;
   beat: number;
+  /** Where playback last started (Ableton's insert marker); Space returns here on stop. */
+  playStart: number;
   selectedTrackId: string;
   selectedScene: number;
   selectedSlot: { trackId: string; scene: number } | null;
@@ -90,7 +92,8 @@ export interface StudioState {
   setBars: (bars: number) => void;
   setMaster: (master: number) => void;
   toggleMetronome: () => void;
-  togglePlay: () => Promise<void>;
+  /** Start / stop. `resume` continues from (or stops at) the current position instead. */
+  togglePlay: (resume?: boolean) => Promise<void>;
   stop: () => void;
   toggleRecord: () => void;
   launchClip: (trackId: string, scene: number) => Promise<void>;
@@ -272,6 +275,8 @@ export const useStudio = create<StudioState>()(
       recording: false,
       metronome: false,
       beat: 0,
+
+      playStart: 0,
       selectedTrackId: demo.tracks[0]?.id ?? "trk-drums",
       selectedScene: 1,
       selectedSlot: { trackId: demo.tracks[0]?.id ?? "trk-drums", scene: 1 },
@@ -322,7 +327,7 @@ export const useStudio = create<StudioState>()(
       seek: (beat) => {
         const next = clamp(beat, 0, get().project.bars * 4 - 0.25);
         engine.pause();
-        set({ beat: next, launched: {}, follow: "arrange" });
+        set({ beat: next, playStart: next, launched: {}, follow: "arrange" });
         engine.sync(snap(get()));
         if (get().playing) engine.start(next);
       },
@@ -370,7 +375,7 @@ export const useStudio = create<StudioState>()(
 
       toggleMetronome: () => set((s) => ({ metronome: !s.metronome })),
 
-      togglePlay: async () => {
+      togglePlay: async (resume = false) => {
         const state = get();
         try {
           await engine.ensure();
@@ -380,23 +385,33 @@ export const useStudio = create<StudioState>()(
         }
         if (state.playing) {
           const beat = engine.pause();
-          set({ playing: false, beat, pending: {} });
+          // Like Ableton: stopping returns to where playback started; resume keeps the spot.
+          const rewind = !resume && state.follow === "arrange";
+          set({ playing: false, beat: rewind ? state.playStart : beat, pending: {} });
           return;
         }
         let launched = state.launched;
         let follow = state.follow;
+        let start = state.beat;
         if (state.view === "arrange") {
           follow = "arrange";
-          if (state.beat < 0.05) launched = {};
+          if (!resume) start = clamp(state.playStart, 0, state.project.bars * 4 - 0.25);
+          if (start < 0.05) launched = {};
         } else if (state.view === "session") {
           follow = "session";
           const audible = Object.values(launched).some((l) => l.clipIndex >= 0);
-          if (!audible)
-            launched = sceneLaunch(state.project, state.selectedScene, state.beat, false);
+          if (!audible) launched = sceneLaunch(state.project, state.selectedScene, start, false);
         }
-        set({ playing: true, launched, audioError: null, follow });
+        set({
+          playing: true,
+          beat: start,
+          ...(!resume && { playStart: start }),
+          launched,
+          audioError: null,
+          follow,
+        });
         engine.sync(snap(get()));
-        engine.start(get().beat);
+        engine.start(start);
       },
 
       stop: () => {
@@ -405,7 +420,7 @@ export const useStudio = create<StudioState>()(
         for (const [id, launch] of Object.entries(get().launched)) {
           if (launch.clipIndex >= 0) launched[id] = { clipIndex: launch.clipIndex, launchBeat: 0 };
         }
-        set({ playing: false, beat: 0, launched, recording: false, pending: {} });
+        set({ playing: false, beat: 0, playStart: 0, launched, recording: false, pending: {} });
       },
 
       toggleRecord: () => set((s) => ({ recording: !s.recording })),
@@ -1130,6 +1145,8 @@ export const useStudio = create<StudioState>()(
           playing: false,
           recording: false,
           beat: 0,
+
+          playStart: 0,
           follow: "arrange",
           view: "arrange",
           selectedTrackId: project.tracks[0]!.id,
@@ -1148,6 +1165,8 @@ export const useStudio = create<StudioState>()(
           playing: false,
           recording: false,
           beat: 0,
+
+          playStart: 0,
           follow: "arrange",
           view: "arrange",
           selectedTrackId: project.tracks[0]!.id,
@@ -1246,6 +1265,8 @@ export const useStudio = create<StudioState>()(
           playing: false,
           recording: false,
           beat: 0,
+
+          playStart: 0,
           follow: "arrange",
           view: "arrange",
           selectedTrackId: remapped[0]!.id,
@@ -1363,6 +1384,8 @@ export function replaceProject(project: Project) {
     playing: false,
     recording: false,
     beat: 0,
+
+    playStart: 0,
     follow: "arrange",
     selectedTrackId: project.tracks[0]!.id,
     selectedSlot: null,

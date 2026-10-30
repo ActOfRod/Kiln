@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createDemoProject, createEmptyProject } from "./factory.ts";
 import { fitRegion, growBars, splitRegion, transformMidi } from "./regions.ts";
-import { folderOf, groupSounds, type LibrarySound } from "./library.ts";
+import { folderOf, folderTree, groupSounds, inFolder, type LibrarySound } from "./library.ts";
 import {
   assetOf,
   clipWindow,
@@ -135,6 +135,37 @@ describe("sample folders", () => {
       folders[1]!.sounds.map((s) => s.name),
       ["kick 2", "kick 10"],
     );
+  });
+  it("nests sub-folders into a tree with recursive counts", () => {
+    const tree = folderTree(
+      groupSounds([
+        sound("kick", "Pack / Kicks"),
+        sound("snare", "Pack / Snares"),
+        sound("loop", "Pack"),
+        sound("pad", "Ambient"),
+      ]).folders,
+    );
+    assert.deepEqual(
+      tree.map((node) => [node.name, node.count]),
+      [
+        ["Ambient", 1],
+        ["Pack", 3],
+      ],
+    );
+    const pack = tree[1]!;
+    assert.deepEqual(
+      pack.children.map((node) => [node.name, node.path, node.count]),
+      [
+        ["Kicks", "Pack / Kicks", 1],
+        ["Snares", "Pack / Snares", 1],
+      ],
+    );
+    assert.deepEqual(
+      pack.sounds.map((s) => s.name),
+      ["loop"],
+    );
+    assert.ok(inFolder("Pack / Kicks", "Pack"));
+    assert.ok(!inFolder("Package", "Pack"));
   });
 });
 

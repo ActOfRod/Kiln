@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   ChevronRight,
   Folder,
@@ -13,26 +13,36 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { PATTERNS } from "@/studio/factory";
+import { engine } from "@/studio/engine";
+import { PATTERNS, defaultDevice } from "@/studio/factory";
 import {
   deleteSound,
   deleteSounds,
   folderOf,
+  folderTree,
   groupSounds,
+  inFolder,
   listSounds,
   readSound,
   saveSound,
   updateSound,
+  type FolderNode,
   type LibrarySound,
 } from "@/studio/library";
 import { useStudio } from "@/studio/store";
-import type { TrackKind } from "@/studio/types";
+import type { Pattern, TrackKind } from "@/studio/types";
 import { cx } from "./ui";
 
-const categories = ["all", "drums", "bass", "keys", "lead", "samples", "favorites"] as const;
-type Category = (typeof categories)[number];
+/** Pattern categories, shown as folders like Ableton's browser. */
+const KINDS: Array<{ kind: TrackKind; label: string }> = [
+  { kind: "drums", label: "Drums" },
+  { kind: "bass", label: "Bass" },
+  { kind: "keys", label: "Keys" },
+  { kind: "lead", label: "Lead" },
+];
 
 const MY_SAMPLES = "My samples";
+const OPEN_KEY = "kiln-library-open";
 
 function isAudio(file: File) {
   return (
@@ -40,9 +50,14 @@ function isAudio(file: File) {
   );
 }
 
+/** Tree keys for a sample folder and its parents, so a new folder shows up opened. */
+function folderKeys(path: string): string[] {
+  const parts = path.split(" / ");
+  return parts.map((_, i) => `dir:${parts.slice(0, i + 1).join(" / ")}`);
+}
+
 export function LibraryBrowser() {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<Category>("all");
   const [sounds, setSounds] = useState<LibrarySound[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -58,6 +73,8 @@ export function LibraryBrowser() {
   const audio = useRef<HTMLAudioElement | null>(null);
   const url = useRef<string | null>(null);
   const request = useRef(0);
+  const rendered = useRef(new Map<string, Blob>());
+  const restored = useRef(false);
   const selectedSound = sounds.find((sound) => sound.id === selected);
   const refresh = async () => setSounds(await listSounds());
   const stopPreview = () => {
@@ -68,6 +85,11 @@ export function LibraryBrowser() {
     url.current = null;
     setPreview(null);
   };
+  const expand = (keys: string[]) => setOpen((current) => [...new Set([...current, ...keys])]);
+  const toggle = (key: string) =>
+    setOpen((current) =>
+      current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
+    );
 
   useEffect(() => {
     const activeRequest = request;
@@ -78,15 +100,28 @@ export function LibraryBrowser() {
       const saved: unknown = JSON.parse(localStorage.getItem("kiln-pattern-favorites") ?? "[]");
       if (Array.isArray(saved) && saved.every((item) => typeof item === "string"))
         setFavorites(saved);
+      const folders: unknown = JSON.parse(localStorage.getItem(OPEN_KEY) ?? "[]");
+      if (Array.isArray(folders) && folders.every((item) => typeof item === "string"))
+        setOpen(folders);
     } catch {
-      setError("Pattern favorites could not be restored.");
+      setError("Library favorites could not be restored.");
     }
+    restored.current = true;
     return () => {
       activeRequest.current++;
       audio.current?.pause();
       if (url.current) URL.revokeObjectURL(url.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!restored.current) return;
+    try {
+      localStorage.setItem(OPEN_KEY, JSON.stringify(open));
+    } catch {
+      /* folder state is a convenience; storage may be full */
+    }
+  }, [open]);
 
   const run = (action: () => Promise<void>) => {
     setError(null);
@@ -153,8 +188,7 @@ export function LibraryBrowser() {
     } finally {
       await ctx.close();
       await refresh();
-      setCategory("samples");
-      if (folders.size) setOpen((current) => [...new Set([...current, ...folders])]);
+      expand(folders.size ? [...folders].flatMap(folderKeys) : ["samples"]);
     }
     if (!audioFiles.length) throw new Error("No audio files found. Try WAV, MP3, AIFF or FLAC.");
     if (skipped)
@@ -167,12 +201,12 @@ export function LibraryBrowser() {
     if (files.some((item) => item.webkitRelativePath)) run(() => importFiles(files));
     else setNaming(files);
   };
-  const audition = async (id: string) => {
+  const audition = async (id: string, load: () => Promise<Blob>) => {
     stopPreview();
     const token = request.current;
-    const sound = await readSound(id);
+    const data = await load();
     if (request.current !== token) return;
-    url.current = URL.createObjectURL(new Blob([sound.data]));
+    url.current = URL.createObjectURL(data);
     const player = new Audio(url.current);
     audio.current = player;
     player.onended = stopPreview;
@@ -183,30 +217,104 @@ export function LibraryBrowser() {
     await player.play();
     setPreview(id);
   };
+  const togglePreview = (id: string, load: () => Promise<Blob>) =>
+    preview === id ? stopPreview() : run(() => audition(id, load));
+  const soundAudio = async (id: string) => new Blob([(await readSound(id)).data]);
+  /** A pattern played by itself on the song's instrument for that kind, at the song tempo. */
+  const patternAudio = async (pattern: Pattern) => {
+    const { project, selectedTrackId } = useStudio.getState();
+    const track =
+      project.tracks.find((t) => t.id === selectedTrackId && t.kind === pattern.kind) ??
+      project.tracks.find((t) => t.kind === pattern.kind);
+    const device = track?.device ?? defaultDevice(pattern.kind);
+    const key = `${pattern.id}|${project.bpm}|${project.swing}|${JSON.stringify(device)}`;
+    let blob = rendered.current.get(key);
+    if (!blob) {
+      blob = await engine.renderPattern(pattern, device, project);
+      if (rendered.current.size >= 24) rendered.current.clear();
+      rendered.current.set(key, blob);
+    }
+    return blob;
+  };
+  const toggleFavorite = (patternId: string) => {
+    const next = favorites.includes(patternId)
+      ? favorites.filter((id) => id !== patternId)
+      : [...favorites, patternId];
+    try {
+      localStorage.setItem("kiln-pattern-favorites", JSON.stringify(next));
+      setFavorites(next);
+    } catch {
+      setError("Favorites could not be saved. Browser storage may be full.");
+    }
+  };
+
   const q = query.trim().toLowerCase();
-  const patterns = PATTERNS.filter(
-    (pattern) =>
-      category !== "samples" &&
-      (category === "all" ||
-        category === pattern.kind ||
-        (category === "favorites" && favorites.includes(pattern.id))) &&
-      `${pattern.name} ${pattern.kind}`.toLowerCase().includes(q),
+  const patterns = PATTERNS.filter((pattern) =>
+    `${pattern.name} ${pattern.kind}`.toLowerCase().includes(q),
   );
-  const filtered = sounds.filter(
-    (sound) =>
-      (category === "all" ||
-        category === "samples" ||
-        (category === "favorites" && sound.favorite)) &&
-      `${sound.name} ${sound.tags.join(" ")} ${sound.folder ?? ""}`.toLowerCase().includes(q),
+  const filtered = sounds.filter((sound) =>
+    `${sound.name} ${sound.tags.join(" ")} ${sound.folder ?? ""}`.toLowerCase().includes(q),
   );
   const groups = groupSounds(filtered);
+  const tree = folderTree(groups.folders);
   const folderNames = groupSounds(sounds).folders.map((group) => group.name);
+  const favoritePatterns = patterns.filter((pattern) => favorites.includes(pattern.id));
+  const favoriteSounds = filtered.filter((sound) => sound.favorite);
+
+  const patternRow = (pattern: Pattern) => {
+    const id = `pattern:${pattern.id}`;
+    const favorite = favorites.includes(pattern.id);
+    return (
+      <div
+        key={pattern.id}
+        className={cx("library-item", preview === id && "selected")}
+        draggable
+        title="Click to hear it on its own · drag onto a track, or below the tracks for a new one"
+        onDragStart={(event) => event.dataTransfer.setData("application/kiln-pattern", pattern.id)}
+      >
+        <button
+          className="icon-button"
+          disabled={busy && preview !== id}
+          aria-label={`Preview ${pattern.name}`}
+          aria-pressed={preview === id}
+          onClick={() => togglePreview(id, () => patternAudio(pattern))}
+        >
+          {preview === id ? <Square size={14} /> : <Music2 size={14} className="text-accent" />}
+        </button>
+        <button
+          className="library-item-name"
+          onClick={() => togglePreview(id, () => patternAudio(pattern))}
+        >
+          <strong>{pattern.name}</strong>
+          <small>
+            {pattern.kind} · {pattern.length / 4} bar · MIDI
+          </small>
+        </button>
+        <button
+          aria-label={`Favorite ${pattern.name}`}
+          aria-pressed={favorite}
+          className="icon-button"
+          onClick={() => toggleFavorite(pattern.id)}
+        >
+          <Star size={13} fill={favorite ? "currentColor" : "none"} />
+        </button>
+        <button
+          className="icon-button"
+          aria-label={`Add ${pattern.name} to song`}
+          title="Add to the selected track at the playhead, or to a new track"
+          onClick={() => addPattern(pattern.id, pattern.kind)}
+        >
+          <Plus size={14} />
+        </button>
+      </div>
+    );
+  };
   const soundRow = (sound: LibrarySound) => (
     <div
       key={sound.id}
       className={cx("library-item", selected === sound.id && "selected")}
       draggable
-      title="Drag onto the arrangement to place this sound"
+      title="Click to hear it · drag onto the arrangement to place this sound"
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = "copy";
         event.dataTransfer.setData("application/kiln-sound", sound.id);
@@ -214,13 +322,20 @@ export function LibraryBrowser() {
     >
       <button
         className="icon-button"
-        disabled={busy}
+        disabled={busy && preview !== sound.id}
         aria-label={`Preview ${sound.name}`}
-        onClick={() => (preview === sound.id ? stopPreview() : run(() => audition(sound.id)))}
+        aria-pressed={preview === sound.id}
+        onClick={() => togglePreview(sound.id, () => soundAudio(sound.id))}
       >
         {preview === sound.id ? <Square size={14} /> : <Play size={14} />}
       </button>
-      <button className="library-item-name" onClick={() => setSelected(sound.id)}>
+      <button
+        className="library-item-name"
+        onClick={() => {
+          setSelected(sound.id);
+          togglePreview(sound.id, () => soundAudio(sound.id));
+        }}
+      >
         <strong>{sound.name}</strong>
         <small>
           {sound.duration.toFixed(1)}s · {sound.tags.join(", ") || "untagged"}
@@ -241,6 +356,106 @@ export function LibraryBrowser() {
       </button>
     </div>
   );
+  /** One folder in the browser tree; searching opens every folder with a match. */
+  const folder = (options: {
+    id: string;
+    label: string;
+    count: number;
+    depth?: number;
+    icon?: ReactNode;
+    actions?: ReactNode;
+    children: () => ReactNode;
+    empty?: string;
+  }) => {
+    const expanded = !!q || open.includes(options.id);
+    const depth = options.depth ?? 0;
+    return (
+      <div
+        key={options.id}
+        className="library-folder"
+        style={{ "--depth": depth } as CSSProperties}
+      >
+        <div className="library-folder-header">
+          <button
+            className="library-folder-toggle"
+            aria-expanded={expanded}
+            onClick={() => toggle(options.id)}
+          >
+            <ChevronRight size={13} className={cx("chevron", expanded && "open")} />
+            {options.icon ?? (expanded ? <FolderOpen size={14} /> : <Folder size={14} />)}
+            <strong>{options.label}</strong>
+            <small>{options.count}</small>
+          </button>
+          {options.actions}
+        </div>
+        {expanded && (
+          <div className="library-folder-items">
+            {options.count ? (
+              options.children()
+            ) : (
+              <p className="library-folder-empty">{options.empty ?? "Empty"}</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+  const deleteActions = (path: string) =>
+    deleting === path ? (
+      <>
+        <button
+          className="library-folder-confirm danger"
+          disabled={busy}
+          onClick={() =>
+            run(async () => {
+              stopPreview();
+              const all = sounds.filter((sound) => inFolder(sound.folder, path));
+              await deleteSounds(all.map((sound) => sound.id));
+              if (all.some((sound) => sound.id === selected)) setSelected(null);
+              setDeleting(null);
+              await refresh();
+            })
+          }
+        >
+          Delete
+        </button>
+        <button className="library-folder-confirm" onClick={() => setDeleting(null)}>
+          Keep
+        </button>
+      </>
+    ) : (
+      <button
+        className="icon-button"
+        aria-label={`Delete folder ${path}`}
+        title="Remove this folder from the library; project copies are preserved"
+        onClick={() => setDeleting(path)}
+      >
+        <Trash2 size={13} />
+      </button>
+    );
+  const folderNode = (node: FolderNode, depth: number): ReactNode =>
+    folder({
+      id: `dir:${node.path}`,
+      label: node.name,
+      count: node.count,
+      depth,
+      actions: deleteActions(node.path),
+      children: () => [
+        ...node.children.map((child) => folderNode(child, depth + 1)),
+        ...node.sounds.map(soundRow),
+      ],
+    });
+  const kindFolders = KINDS.map(({ kind, label }) => {
+    const list = patterns.filter((pattern) => pattern.kind === kind);
+    if (q && !list.length) return null;
+    return folder({
+      id: `cat:${kind}`,
+      label,
+      count: list.length,
+      children: () => list.map(patternRow),
+    });
+  });
+  const favoriteCount = favoritePatterns.length + favoriteSounds.length;
   return (
     <aside className="library-panel" aria-label="Sound library">
       <div className="panel-title">
@@ -252,127 +467,42 @@ export function LibraryBrowser() {
         <Search size={15} />
         <input
           aria-label="Search library"
-          placeholder="Search sounds, tags…"
+          placeholder="Search sounds, tags, folders…"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
       </label>
-      <div className="library-categories">
-        {categories.map((item) => (
-          <button
-            key={item}
-            className={cx(category === item && "active")}
-            onClick={() => setCategory(item)}
-          >
-            {item === "all" ? "All sounds" : item === "favorites" ? "★ Favorites" : item}
-          </button>
-        ))}
-      </div>
       <div className="library-results">
+        {!q && (
+          <>
+            <p className="section-label">Collections</p>
+            {folder({
+              id: "favorites",
+              label: "Favorites",
+              count: favoriteCount,
+              icon: <Star size={14} className="text-accent" />,
+              empty: "Star a pattern or sound to collect it here.",
+              children: () => [
+                ...favoritePatterns.map(patternRow),
+                ...favoriteSounds.map(soundRow),
+              ],
+            })}
+          </>
+        )}
         {patterns.length > 0 && <p className="section-label">KILN patterns · MIDI</p>}
-        {patterns.map((pattern) => (
-          <div
-            key={pattern.id}
-            className="library-item"
-            draggable
-            onDragStart={(event) =>
-              event.dataTransfer.setData("application/kiln-pattern", pattern.id)
-            }
-          >
-            <Music2 size={16} className="text-accent shrink-0" />
-            <button
-              className="library-item-name"
-              onClick={() => addPattern(pattern.id, pattern.kind)}
-              title="Insert on the selected compatible track, or create one"
-            >
-              <strong>{pattern.name}</strong>
-              <small>
-                {pattern.kind} · {pattern.length / 4} bar
-              </small>
-            </button>
-            <button
-              aria-label={`Favorite ${pattern.name}`}
-              aria-pressed={favorites.includes(pattern.id)}
-              className="icon-button"
-              onClick={() => {
-                const next = favorites.includes(pattern.id)
-                  ? favorites.filter((id) => id !== pattern.id)
-                  : [...favorites, pattern.id];
-                try {
-                  localStorage.setItem("kiln-pattern-favorites", JSON.stringify(next));
-                  setFavorites(next);
-                } catch {
-                  setError("Favorites could not be saved. Browser storage may be full.");
-                }
-              }}
-            >
-              <Star size={13} fill={favorites.includes(pattern.id) ? "currentColor" : "none"} />
-            </button>
-          </div>
-        ))}
-        {groups.loose.length > 0 && <p className="section-label">{MY_SAMPLES} · audio</p>}
-        {groups.loose.map(soundRow)}
-        {groups.folders.length > 0 && <p className="section-label">Sample folders</p>}
-        {groups.folders.map((group) => {
-          const expanded = !!q || open.includes(group.name);
-          return (
-            <div key={group.name} className="library-folder">
-              <div className="library-folder-header">
-                <button
-                  className="library-folder-toggle"
-                  aria-expanded={expanded}
-                  onClick={() =>
-                    setOpen((current) =>
-                      current.includes(group.name)
-                        ? current.filter((name) => name !== group.name)
-                        : [...current, group.name],
-                    )
-                  }
-                >
-                  <ChevronRight size={13} className={cx("chevron", expanded && "open")} />
-                  {expanded ? <FolderOpen size={14} /> : <Folder size={14} />}
-                  <strong>{group.name}</strong>
-                  <small>{group.sounds.length}</small>
-                </button>
-                {deleting === group.name ? (
-                  <>
-                    <button
-                      className="library-folder-confirm danger"
-                      disabled={busy}
-                      onClick={() =>
-                        run(async () => {
-                          stopPreview();
-                          const all = sounds.filter((sound) => sound.folder === group.name);
-                          await deleteSounds(all.map((sound) => sound.id));
-                          if (all.some((sound) => sound.id === selected)) setSelected(null);
-                          setDeleting(null);
-                          await refresh();
-                        })
-                      }
-                    >
-                      Delete
-                    </button>
-                    <button className="library-folder-confirm" onClick={() => setDeleting(null)}>
-                      Keep
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    className="icon-button"
-                    aria-label={`Delete folder ${group.name}`}
-                    title="Remove this folder from the library; project copies are preserved"
-                    onClick={() => setDeleting(group.name)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </div>
-              {expanded && <div className="library-folder-items">{group.sounds.map(soundRow)}</div>}
-            </div>
-          );
-        })}
-        {!patterns.length && !filtered.length && (
-          <p className="empty-note">No sounds here. Import audio or try another search.</p>
+        {kindFolders}
+        {(!q || filtered.length > 0) && <p className="section-label">Places · audio</p>}
+        {(!q || groups.loose.length > 0) &&
+          folder({
+            id: "samples",
+            label: MY_SAMPLES,
+            count: groups.loose.length,
+            empty: "Imported files land here.",
+            children: () => groups.loose.map(soundRow),
+          })}
+        {tree.map((node) => folderNode(node, 0))}
+        {q && !patterns.length && !filtered.length && (
+          <p className="empty-note">No sounds match. Try another search or import audio.</p>
         )}
       </div>
       {selectedSound && (
@@ -404,7 +534,7 @@ export function LibraryBrowser() {
                 if (folder === (selectedSound.folder ?? "") || folder === MY_SAMPLES) return;
                 run(async () => {
                   await updateSound(selectedSound.id, { folder: folder || undefined });
-                  if (folder) setOpen((current) => [...new Set([...current, folder])]);
+                  if (folder) expand(folderKeys(folder));
                   await refresh();
                 });
               }}

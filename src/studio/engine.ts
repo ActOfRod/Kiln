@@ -1,4 +1,13 @@
-import type { ArrangeClip, Follow, LaunchState, Note, Project, Track } from "./types";
+import type {
+  ArrangeClip,
+  Device,
+  Follow,
+  LaunchState,
+  Note,
+  Pattern,
+  Project,
+  Track,
+} from "./types";
 import { clamp } from "./theory";
 import { encodeMp3, type ExportOptions } from "./export";
 import { regionOffset } from "./regions";
@@ -842,6 +851,62 @@ class Engine {
     performer.schedule(from, to);
     const audio = await offline.startRendering();
     return options.format === "mp3" ? encodeMp3(audio, options.bitrate) : encodeWav(audio);
+  }
+
+  /**
+   * Render a library pattern on its own (looped twice) as a WAV, so it can be
+   * auditioned without touching the song.
+   */
+  async renderPattern(
+    pattern: Pattern,
+    device: Device,
+    song: Pick<Project, "bpm" | "swing">,
+  ): Promise<Blob> {
+    const beats = Math.max(1, pattern.length) * 2;
+    const clip: ArrangeClip = {
+      id: "audition-clip",
+      name: pattern.name,
+      color: pattern.color,
+      start: 0,
+      length: beats,
+      patternLength: pattern.length,
+      notes: pattern.notes,
+    };
+    const project: Project = {
+      name: "Audition",
+      bpm: song.bpm,
+      swing: song.swing,
+      bars: Math.ceil(beats / 4),
+      master: 0.86,
+      scenes: [],
+      tracks: [
+        {
+          id: "audition",
+          name: pattern.name,
+          kind: pattern.kind,
+          color: pattern.color,
+          volume: 0.8,
+          pan: 0,
+          mute: false,
+          solo: false,
+          clips: [],
+          arrangement: [clip],
+          device,
+        },
+      ],
+    };
+    const seconds = beats * (60 / song.bpm) + 1.5;
+    const offline = new OfflineAudioContext(2, Math.ceil(44100 * seconds), 44100);
+    const performer = new Performer(
+      offline,
+      offline.destination,
+      { project, follow: "arrange", launched: {}, metronome: false },
+      true,
+    );
+    performer.originBeat = 0;
+    performer.originTime = 0;
+    performer.schedule(0, beats);
+    return encodeWav(await offline.startRendering());
   }
 }
 

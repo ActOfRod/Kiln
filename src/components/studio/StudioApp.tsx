@@ -42,6 +42,43 @@ const views: Array<{ id: StudioView; label: string; icon: typeof LayoutGrid }> =
   { id: "play", label: "Instruments", icon: KeyboardMusic },
 ];
 
+/**
+ * Tempo field. Typing keeps a draft so partial values ("1", "12") aren't clamped
+ * mid-entry; in-range values apply live, and Enter / leaving the field commits.
+ */
+function TempoInput({ bpm }: { bpm: number }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (value: string) => {
+    const next = Number(value);
+    if (value.trim() && Number.isFinite(next)) useStudio.getState().setBpm(next);
+    setDraft(null);
+  };
+  return (
+    <label className="tempo-input">
+      <input
+        aria-label="Tempo BPM"
+        type="number"
+        min={40}
+        max={240}
+        step={1}
+        value={draft ?? bpm}
+        onFocus={(event) => event.target.select()}
+        onChange={(event) => {
+          const value = event.target.value;
+          const next = Number(value);
+          setDraft(value);
+          if (value.trim() && next >= 40 && next <= 240) useStudio.getState().setBpm(next);
+        }}
+        onBlur={(event) => commit(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+      />
+      <span>BPM</span>
+    </label>
+  );
+}
+
 export function StudioApp() {
   const project = useStudio((s) => s.project);
   const view = useStudio((s) => s.view);
@@ -90,7 +127,17 @@ export function StudioApp() {
             .catch((err: unknown) => useStudio.setState({ audioError: String(err) }));
         return;
       }
+      // Space can't type into number fields or sliders, so let it drive the transport
+      // there too (e.g. right after editing the tempo).
+      const transportField =
+        (event.code === "Space" || event.key === "Escape") &&
+        target instanceof HTMLInputElement &&
+        (target.type === "number" || target.type === "range") &&
+        !target.closest("[role=dialog]")
+          ? target
+          : null;
       if (
+        !transportField &&
         target instanceof HTMLElement &&
         target.closest("input, textarea, select, [contenteditable], [role=dialog]")
       )
@@ -104,9 +151,13 @@ export function StudioApp() {
       if (document.querySelector("[role=dialog]")) return;
       if (event.code === "Space" && !event.repeat) {
         event.preventDefault();
-        void useStudio.getState().togglePlay();
+        transportField?.blur();
+        void useStudio.getState().togglePlay(event.shiftKey);
       }
-      if (event.key === "Escape") useStudio.getState().stop();
+      if (event.key === "Escape") {
+        transportField?.blur();
+        useStudio.getState().stop();
+      }
     };
     const unsub = useStudio.persist.onFinishHydration(() => {
       useStudio.setState({ past: [], future: [] });
@@ -169,6 +220,11 @@ export function StudioApp() {
           </button>
           <button
             aria-label={playing ? "Pause" : "Play"}
+            title={
+              playing
+                ? "Stop and return to the start point (Space) · Shift+Space stops here"
+                : "Play from the start point (Space) · Shift+Space continues from here"
+            }
             className={cx("transport-play", playing && "active")}
             onClick={() => void useStudio.getState().togglePlay()}
           >
@@ -188,19 +244,7 @@ export function StudioApp() {
             <Circle size={17} fill={recording ? "currentColor" : "none"} />
           </button>
           <span className="transport-position">{formatPosition(beat)}</span>
-          <label className="tempo-input">
-            <input
-              aria-label="Tempo BPM"
-              type="number"
-              min={40}
-              max={240}
-              value={project.bpm}
-              onChange={(event) => {
-                if (event.target.value) useStudio.getState().setBpm(Number(event.target.value));
-              }}
-            />
-            <span>BPM</span>
-          </label>
+          <TempoInput bpm={project.bpm} />
           <button
             aria-label="Metronome"
             aria-pressed={metronome}
@@ -357,7 +401,7 @@ export function StudioApp() {
             : "Ready to create"}
         </span>
         <span className="shortcut-hint">
-          Space play / pause · Esc stop · ⌘/Ctrl Z undo · drag regions to move
+          Space play / stop · Shift+Space continue · Esc stop · ⌘/Ctrl Z undo · drag regions to move
         </span>
         <button onClick={() => setSheet("lineage")}>Data Sources &amp; Lineage</button>
       </footer>
