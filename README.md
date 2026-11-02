@@ -68,17 +68,16 @@ you last started playback or clicked the ruler) and stopping returns there;
 **Shift+Space** stops in place and continues from that spot. Space works even
 while the tempo field is focused, and Enter confirms a typed tempo.
 
-The library is a folder browser: **Favorites**, KILN patterns in **Drums**,
-**Bass**, **Keys** and **Lead** folders, then your audio in _My samples_ and
-imported folders (sub-folders nest). Click any pattern or sound to hear it on
-its own; the song isn't changed until you drag it onto a track (or below the
+The library is a folder browser: **Favorites**, your audio, then KILN patterns in
+**Drums**, **Bass**, **Keys** and **Lead**. Click any pattern or sound to hear it
+on its own; the song isn't changed until you drag it onto a track (or below the
 tracks for a new one) or press **+**. Searching opens every folder with a match.
 
-Import audio into the library, audition it, then drag it in or use **+** for a
-new track. **Import files** puts single sounds in _My samples_; **Folder** imports
-a whole folder and keeps its sounds grouped (sub-folders too). Collapse, delete or
-move sounds between folders from the library. Name, tag and favorite imported
-sounds from their library details.
+**Add folder** shows a folder that is already on this machine. Those sounds stay
+in that folder, including after a refresh, and the library reads them from there.
+**Copy files** saves individual sounds into _My samples_ in this browser. Collapse
+or remove a linked folder from the library; removing the link leaves the files
+where they are. Name, tag and favorite copied sounds from their library details.
 Every placed clip keeps its own copy of the audio. To change how a track
 sounds, open **Instruments** (or the inspector's instrument card) and pick an
 instrument — the notes stay the same and you hear a short preview. Microphone recording lives in
@@ -102,16 +101,18 @@ runbook).
 
 ## Storage and backups
 
-Songs auto-save to localStorage; imported library audio and project audio use
-separate IndexedDB databases. Download a `.kiln` project with **Save** to back
-up metadata **and original audio**. Open restores it using new track IDs so
-existing audio and undo history are not overwritten. The sound library itself
-is not included in a project backup; only the audio used by its tracks is.
+Songs auto-save to localStorage. A linked folder is remembered by the browser and
+read from its original location. Copied library audio and audio placed on tracks
+use separate IndexedDB databases. Download a `.kiln` project with **Save** to back
+up metadata **and the audio used by that song**. Open restores it using new track
+IDs so existing audio and undo history are not overwritten. A linked folder is not
+copied into a project backup until one of its sounds is placed on a track.
 
-Browser storage is not cloud storage or a permanent backup. Clearing site data,
-changing browsers or storage eviction can remove local songs and samples. Save
-portable projects regularly. Imports are limited to 50 MB per library sound;
-portable files are limited to 200 MB. File-format support depends on the browser.
+Browser storage is not cloud storage. Clearing site data or switching browsers
+forgets the folder link and any copied samples; the original folder is untouched.
+Save portable projects regularly. Copied sounds and sounds placed on a track are
+limited to 50 MB each; portable files are limited to 200 MB. Linking a folder
+needs Chrome or Edge. File-format support depends on the browser.
 
 ## Architecture and operation
 

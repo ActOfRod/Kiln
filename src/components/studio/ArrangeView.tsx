@@ -10,6 +10,7 @@ import { Copy, Download, Ellipsis, Minus, Plus, Scissors, Trash2, X } from "luci
 import { engine } from "@/studio/engine";
 import { compatibleTracks, useStudio } from "@/studio/store";
 import { readSound } from "@/studio/library";
+import { readLinkedFile } from "@/studio/local-folders";
 import { PATTERNS } from "@/studio/factory";
 import { sampleBank } from "@/studio/samples";
 import {
@@ -72,7 +73,12 @@ function PeerPlayheads({ peers, px, bars }: { peers: Presence[]; px: number; bar
   );
 }
 
-const DRAG_TYPES = ["application/kiln-pattern", "application/kiln-sound", "Files"];
+const DRAG_TYPES = [
+  "application/kiln-pattern",
+  "application/kiln-sound",
+  "application/kiln-linked",
+  "Files",
+];
 
 function failure(error: unknown) {
   useStudio.setState({ audioError: error instanceof Error ? error.message : String(error) });
@@ -92,6 +98,7 @@ async function dropMaterial(event: DragEvent, target: Track | null, start: numbe
   const act = useStudio.getState();
   const patternId = event.dataTransfer.getData("application/kiln-pattern");
   const soundId = event.dataTransfer.getData("application/kiln-sound");
+  const linkedId = event.dataTransfer.getData("application/kiln-linked");
   const files = Array.from(event.dataTransfer.files).filter(isAudioFile);
   const audioTarget = target?.kind === "sample" ? target.id : null;
   if (patternId) {
@@ -107,6 +114,11 @@ async function dropMaterial(event: DragEvent, target: Track | null, start: numbe
   }
   if (soundId) {
     const sound = await readSound(soundId);
+    await act.placeAudio(audioTarget, sound.data, sound.name, start);
+    return;
+  }
+  if (linkedId) {
+    const sound = await readLinkedFile(linkedId);
     await act.placeAudio(audioTarget, sound.data, sound.name, start);
     return;
   }

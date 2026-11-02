@@ -29,6 +29,23 @@ import {
   type FolderNode,
   type LibrarySound,
 } from "@/studio/library";
+import {
+  canLinkFolders,
+  collectSounds,
+  folderPermission,
+  formatBytes,
+  listLinks,
+  notifyFolders,
+  openLinkedFile,
+  pickSampleFolder,
+  readLinkedFile,
+  rememberFolder,
+  removeLink,
+  requestFolderAccess,
+  subscribeFolders,
+  type FolderAccess,
+  type LinkedSound,
+} from "@/studio/local-folders";
 import { formatImportEta, importMeter, type ImportMeter } from "@/studio/import-progress";
 import { useStudio } from "@/studio/store";
 import type { Pattern, TrackKind } from "@/studio/types";
@@ -44,6 +61,15 @@ const KINDS: Array<{ kind: TrackKind; label: string }> = [
 
 const MY_SAMPLES = "My samples";
 const OPEN_KEY = "kiln-library-open";
+
+interface LinkView {
+  id: string;
+  name: string;
+  permission: FolderAccess;
+  sounds: LinkedSound[];
+  scanning: boolean;
+  seen: number;
+}
 
 function labelOf(file: File) {
   const stripped = file.name.replace(/\.[^.]+$/, "");
@@ -76,8 +102,10 @@ export function LibraryBrowser() {
   const [notice, setNotice] = useState<string | null>(null);
   const [importing, setImporting] = useState<ImportMeter | null>(null);
   const [importSpoken, setImportSpoken] = useState("");
+  const [links, setLinks] = useState<LinkView[]>([]);
   const eta = useRef<number | null>(null);
   const spokenAt = useRef(0);
+  const revealLink = useRef<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -132,6 +160,97 @@ export function LibraryBrowser() {
       /* folder state is a convenience; storage may be full */
     }
   }, [open]);
+
+  useEffect(() => {
+    let generation = 0;
+    const load = async () => {
+      const ticket = ++generation;
+      let records;
+      try {
+        records = await listLinks();
+      } catch (err) {
+        if (ticket === generation) setError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+      if (ticket !== generation) return;
+      setLinks((current) =>
+        records.map((record) => {
+          const previous = current.find((item) => item.id === record.id);
+          return {
+            id: record.id,
+            name: record.name,
+            permission: previous?.permission ?? "prompt",
+            sounds: previous?.sounds ?? [],
+            scanning: true,
+            seen: previous?.sounds.length ?? 0,
+          };
+        }),
+      );
+      for (const record of records) {
+        if (ticket !== generation) return;
+        let permission: FolderAccess = "prompt";
+        try {
+          permission = await folderPermission(record.handle);
+        } catch {
+          permission = "missing";
+        }
+        if (ticket !== generation) return;
+        if (permission !== "granted") {
+          setLinks((current) =>
+            current.map((item) =>
+              item.id === record.id ? { ...item, permission, scanning: false } : item,
+            ),
+          );
+          continue;
+        }
+        try {
+          const sounds = await collectSounds(record.id, record.handle, (seen) => {
+            if (ticket !== generation) return;
+            setLinks((current) =>
+              current.map((item) =>
+                item.id === record.id
+                  ? { ...item, seen, scanning: true, permission: "granted" }
+                  : item,
+              ),
+            );
+          });
+          if (ticket !== generation) return;
+          setLinks((current) =>
+            current.map((item) =>
+              item.id === record.id
+                ? { ...item, sounds, seen: sounds.length, scanning: false, permission: "granted" }
+                : item,
+            ),
+          );
+          if (revealLink.current === record.id) {
+            revealLink.current = null;
+            setOpen((current) => [...new Set([...current, `link:${record.id}`])]);
+            const count = sounds.length.toLocaleString();
+            setNotice(
+              sounds.length
+                ? `Showing ${count} ${sounds.length === 1 ? "sound" : "sounds"} from ${record.name}. They stay in that folder.`
+                : `No audio files in ${record.name}.`,
+            );
+            requestAnimationFrame(() =>
+              document
+                .getElementById(`link-folder-${record.id}`)
+                ?.scrollIntoView({ block: "nearest" }),
+            );
+          }
+        } catch (err) {
+          if (ticket !== generation) return;
+          setLinks((current) =>
+            current.map((item) =>
+              item.id === record.id ? { ...item, permission: "missing", scanning: false } : item,
+            ),
+          );
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      }
+    };
+    void load();
+    return subscribeFolders(() => void load());
+  }, []);
 
   const run = (action: () => Promise<void>) => {
     setError(null);
@@ -312,6 +431,11 @@ export function LibraryBrowser() {
   const filtered = sounds.filter((sound) =>
     `${sound.name} ${sound.tags.join(" ")} ${sound.folder ?? ""}`.toLowerCase().includes(q),
   );
+  const linkedMatch = links.some(
+    (link) =>
+      link.name.toLowerCase().includes(q) ||
+      link.sounds.some((sound) => `${sound.name} ${sound.group ?? ""}`.toLowerCase().includes(q)),
+  );
   const groups = groupSounds(filtered);
   const tree = folderTree(groups.folders);
   const folderNames = groupSounds(sounds).folders.map((group) => group.name);
@@ -423,12 +547,14 @@ export function LibraryBrowser() {
     actions?: ReactNode;
     children: () => ReactNode;
     empty?: string;
+    domId?: string;
   }) => {
     const expanded = !!q || open.includes(options.id);
     const depth = options.depth ?? 0;
     return (
       <div
         key={options.id}
+        id={options.domId}
         className="library-folder"
         style={{ "--depth": depth } as CSSProperties}
       >
@@ -502,6 +628,119 @@ export function LibraryBrowser() {
         ...node.sounds.map(soundRow),
       ],
     });
+  const placeLinked = async (sound: LinkedSound) => {
+    const file = await readLinkedFile(sound.id);
+    if (file.data.byteLength > 50_000_000)
+      throw new Error(`${file.name} exceeds the 50 MB limit for a track.`);
+    await useStudio.getState().addAudioTrack(file.data, file.name);
+  };
+  const linkedRow = (sound: LinkedSound) => (
+    <div
+      key={sound.id}
+      className={cx("library-item", selected === sound.id && "selected")}
+      draggable
+      title="Click to hear it · drag onto the arrangement. The file stays in its folder until you place it."
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "copy";
+        event.dataTransfer.setData("application/kiln-linked", sound.id);
+      }}
+    >
+      <button
+        className="icon-button"
+        disabled={busy && preview !== sound.id}
+        aria-label={`Preview ${sound.name}`}
+        aria-pressed={preview === sound.id}
+        onClick={() => togglePreview(sound.id, () => openLinkedFile(sound.id))}
+      >
+        {preview === sound.id ? <Square size={14} /> : <Play size={14} />}
+      </button>
+      <button
+        className="library-item-name"
+        onClick={() => {
+          setSelected(sound.id);
+          togglePreview(sound.id, () => openLinkedFile(sound.id));
+        }}
+      >
+        <strong>{sound.name}</strong>
+        <small>{formatBytes(sound.size)}</small>
+      </button>
+      <button
+        className="icon-button"
+        disabled={busy}
+        aria-label={`Add ${sound.name} to song`}
+        onClick={() => run(() => placeLinked(sound))}
+      >
+        <Plus size={14} />
+      </button>
+    </div>
+  );
+  const linkedTree = (folderId: string, sounds: LinkedSound[]) => {
+    const byId = new Map(sounds.map((sound) => [sound.id, sound]));
+    const grouped = groupSounds(
+      sounds.map((sound) => ({
+        id: sound.id,
+        name: sound.name,
+        tags: [],
+        favorite: false,
+        duration: 0,
+        addedAt: 0,
+        ...(sound.group ? { folder: sound.group } : {}),
+      })),
+    );
+    const node = (entry: FolderNode, depth: number): ReactNode =>
+      folder({
+        id: `linkdir:${folderId}:${entry.path}`,
+        label: entry.name,
+        count: entry.count,
+        depth,
+        children: () => [
+          ...entry.children.map((child) => node(child, depth + 1)),
+          ...entry.sounds.flatMap((sound) => {
+            const linked = byId.get(sound.id);
+            return linked ? [linkedRow(linked)] : [];
+          }),
+        ],
+      });
+    return [
+      ...grouped.loose.flatMap((sound) => {
+        const linked = byId.get(sound.id);
+        return linked ? [linkedRow(linked)] : [];
+      }),
+      ...folderTree(grouped.folders).map((entry) => node(entry, 1)),
+    ];
+  };
+  const allowLink = (id: string) => {
+    void (async () => {
+      const record = (await listLinks()).find((item) => item.id === id);
+      if (!record) return;
+      const permission = await requestFolderAccess(record.handle);
+      if (permission === "denied") setError(`Access to ${record.name} was denied.`);
+      if (permission === "missing") setError(`${record.name} can't be found anymore.`);
+      notifyFolders();
+    })().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  };
+  const addFolder = () => {
+    if (!canLinkFolders()) {
+      folderInput.current?.click();
+      return;
+    }
+    void (async () => {
+      try {
+        const handle = await pickSampleFolder();
+        const record = await rememberFolder(handle);
+        revealLink.current = record.id;
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof DOMException && err.name === "SecurityError") {
+          setError(
+            "Add folder needs the studio in its own window. Open KILN in a full tab, then choose Add folder. The files stay in that folder.",
+          );
+          return;
+        }
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  };
   const kindFolders = KINDS.map(({ kind, label }) => {
     const list = patterns.filter((pattern) => pattern.kind === kind);
     if (q && !list.length) return null;
@@ -518,7 +757,14 @@ export function LibraryBrowser() {
       <div className="panel-title">
         <FolderOpen size={15} />
         <h2>Library</h2>
-        <span className="text-faint text-xs ml-auto">{PATTERNS.length + sounds.length} sounds</span>
+        <span className="text-faint text-xs ml-auto">
+          {(
+            PATTERNS.length +
+            sounds.length +
+            links.reduce((sum, link) => sum + link.sounds.length, 0)
+          ).toLocaleString()}{" "}
+          sounds
+        </span>
       </div>
       <label className="library-search">
         <Search size={15} />
@@ -546,20 +792,66 @@ export function LibraryBrowser() {
             })}
           </>
         )}
-        {patterns.length > 0 && <p className="section-label">KILN patterns · MIDI</p>}
-        {kindFolders}
-        {(!q || filtered.length > 0) && <p className="section-label">Places · audio</p>}
+        {(links.length > 0 || !q || filtered.length > 0) && (
+          <p className="section-label">Places · audio</p>
+        )}
+        {links.map((link) => {
+          const matched = q
+            ? link.sounds.filter((sound) =>
+                `${sound.name} ${sound.group ?? ""} ${link.name}`.toLowerCase().includes(q),
+              )
+            : link.sounds;
+          if (q && !matched.length && !link.name.toLowerCase().includes(q)) return null;
+          const readable = link.permission === "granted";
+          return folder({
+            id: `link:${link.id}`,
+            domId: `link-folder-${link.id}`,
+            label: link.name,
+            count: link.scanning ? link.seen : matched.length,
+            empty: link.scanning
+              ? "Reading this folder…"
+              : readable
+                ? "No audio files in this folder."
+                : link.permission === "missing"
+                  ? "This folder can't be found."
+                  : "Allow access to see the files in this folder.",
+            actions: (
+              <>
+                {link.permission !== "granted" && link.permission !== "missing" && (
+                  <button className="library-folder-confirm" onClick={() => allowLink(link.id)}>
+                    Allow
+                  </button>
+                )}
+                <button
+                  className="icon-button"
+                  aria-label={`Remove folder ${link.name}`}
+                  title="Remove this link. The files stay on your machine."
+                  onClick={() =>
+                    void removeLink(link.id).catch((err: unknown) =>
+                      setError(err instanceof Error ? err.message : String(err)),
+                    )
+                  }
+                >
+                  <Trash2 size={13} />
+                </button>
+              </>
+            ),
+            children: () => linkedTree(link.id, matched),
+          });
+        })}
         {(!q || groups.loose.length > 0) &&
           folder({
             id: "samples",
             label: MY_SAMPLES,
             count: groups.loose.length,
-            empty: "Imported files land here.",
+            empty: "Copied files land here. Add folder leaves files where they are.",
             children: () => groups.loose.map(soundRow),
           })}
         {tree.map((node) => folderNode(node, 0))}
-        {q && !patterns.length && !filtered.length && (
-          <p className="empty-note">No sounds match. Try another search or import audio.</p>
+        {patterns.length > 0 && <p className="section-label">KILN patterns · MIDI</p>}
+        {kindFolders}
+        {q && !patterns.length && !filtered.length && !linkedMatch && (
+          <p className="empty-note">No sounds match. Try another search or add a folder.</p>
         )}
       </div>
       {selectedSound && (
@@ -726,26 +1018,27 @@ export function LibraryBrowser() {
         <div className="flex gap-2">
           <button
             disabled={busy}
-            className="studio-button flex-1"
-            onClick={() => file.current?.click()}
+            className="studio-button primary flex-1"
+            aria-label="Add folder"
+            title="Show a folder from this machine. The files stay where they are."
+            onClick={addFolder}
           >
-            <Upload size={14} />
-            {importing ? "Importing…" : busy ? "Working…" : "Import files"}
+            <FolderPlus size={14} />
+            Add folder
           </button>
           <button
             disabled={busy}
             className="studio-button flex-1"
-            title="Import a whole folder; its sounds stay grouped"
-            onClick={() => folderInput.current?.click()}
+            onClick={() => file.current?.click()}
           >
-            <FolderPlus size={14} />
-            Folder
+            <Upload size={14} />
+            {importing ? "Importing…" : busy ? "Working…" : "Copy files"}
           </button>
         </div>
         <p>
-          Files go to {MY_SAMPLES}; folders stay grouped. WAV, MP3, AIFF & more.
+          Add folder reads sounds where they already are. WAV, MP3, AIFF and more.
           <br />
-          Private, saved in this browser. 50 MB per file.
+          Copy files saves a private copy in this browser, up to 50 MB each.
         </p>
         <input
           type="file"
