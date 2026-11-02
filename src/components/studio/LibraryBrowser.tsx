@@ -29,6 +29,7 @@ import {
   type FolderNode,
   type LibrarySound,
 } from "@/studio/library";
+import { formatImportEta, importMeter, type ImportMeter } from "@/studio/import-progress";
 import { useStudio } from "@/studio/store";
 import type { Pattern, TrackKind } from "@/studio/types";
 import { cx } from "./ui";
@@ -43,6 +44,11 @@ const KINDS: Array<{ kind: TrackKind; label: string }> = [
 
 const MY_SAMPLES = "My samples";
 const OPEN_KEY = "kiln-library-open";
+
+function labelOf(file: File) {
+  const stripped = file.name.replace(/\.[^.]+$/, "");
+  return stripped || file.name;
+}
 
 function isAudio(file: File) {
   return (
@@ -68,6 +74,10 @@ export function LibraryBrowser() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [naming, setNaming] = useState<File[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [importing, setImporting] = useState<ImportMeter | null>(null);
+  const [importSpoken, setImportSpoken] = useState("");
+  const eta = useRef<number | null>(null);
+  const spokenAt = useRef(0);
   const file = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -153,14 +163,50 @@ export function LibraryBrowser() {
    */
   const importFiles = async (files: File[], folder?: string) => {
     const audioFiles = files.filter(isAudio);
-    let skipped = files.length - audioFiles.length;
+    const unreadable = files.length - audioFiles.length;
+    let skipped = unreadable;
     const folders = new Set<string>();
     const ctx = new AudioContext();
+    const startedAt = performance.now();
+    const bytesTotal = audioFiles.reduce((sum, item) => sum + item.size, 0);
+    let bytesDone = 0;
+    let done = 0;
+    eta.current = null;
+    spokenAt.current = 0;
+    let lastPaint = 0;
+    const paint = (name: string, force = false) => {
+      const now = performance.now();
+      if (!force && now - lastPaint < 120) return;
+      lastPaint = now;
+      const meter = importMeter({
+        done,
+        total: audioFiles.length,
+        bytesDone,
+        bytesTotal,
+        name,
+        startedAt,
+        now,
+        previousEta: eta.current,
+      });
+      eta.current = meter.etaMs;
+      setImporting(meter);
+      if (force || now - spokenAt.current > 8000) {
+        spokenAt.current = now;
+        setImportSpoken(
+          `Importing ${done.toLocaleString()} of ${audioFiles.length.toLocaleString()} into this browser. ${formatImportEta(meter.etaMs)}`,
+        );
+      }
+    };
     try {
+      if (audioFiles.length) paint(labelOf(audioFiles[0]!), true);
       for (const item of audioFiles) {
+        const label = labelOf(item);
+        paint(label);
         if (item.size > 50_000_000) {
           if (audioFiles.length === 1) throw new Error(`${item.name} exceeds the 50 MB limit.`);
           skipped++;
+          done++;
+          bytesDone += item.size;
           continue;
         }
         const data = await item.arrayBuffer();
@@ -170,13 +216,15 @@ export function LibraryBrowser() {
         } catch (err) {
           if (audioFiles.length === 1) throw err;
           skipped++;
+          done++;
+          bytesDone += item.size;
           continue;
         }
         const home = folderOf(item.webkitRelativePath) ?? folder;
         if (home) folders.add(home);
         await saveSound({
           id: crypto.randomUUID(),
-          name: item.name.replace(/\.[^.]+$/, ""),
+          name: label,
           tags: [],
           duration,
           favorite: false,
@@ -184,17 +232,26 @@ export function LibraryBrowser() {
           data,
           ...(home && { folder: home }),
         });
+        done++;
+        bytesDone += item.size;
+        paint(label, done === audioFiles.length);
       }
     } finally {
       await ctx.close();
+      setImporting(null);
+      eta.current = null;
       await refresh();
       expand(folders.size ? [...folders].flatMap(folderKeys) : ["samples"]);
     }
     if (!audioFiles.length) throw new Error("No audio files found. Try WAV, MP3, AIFF or FLAC.");
+    const saved = audioFiles.length - (skipped - unreadable);
+    const parts: string[] = [];
+    if (saved > 1) parts.push(`Saved ${saved.toLocaleString()} sounds in this browser.`);
     if (skipped)
-      setNotice(
+      parts.push(
         `Skipped ${skipped} ${skipped === 1 ? "file that wasn't" : "files that weren't"} usable audio.`,
       );
+    if (parts.length) setNotice(parts.join(" "));
   };
   const pickedFolder = (files: File[]) => {
     // Browsers without folder picking (e.g. some phones) hand back plain files; ask for a name.
@@ -636,6 +693,36 @@ export function LibraryBrowser() {
         </p>
       )}
       <div className="library-footer">
+        {importing && (
+          <div className="library-import">
+            <div className="library-import-meta">
+              <span>Importing into this browser</span>
+              <span>
+                {importing.done.toLocaleString()} / {importing.total.toLocaleString()}
+              </span>
+            </div>
+            <div
+              className="library-import-track"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={importing.percent}
+              aria-valuetext={`${importing.percent} percent. ${formatImportEta(importing.etaMs)}`}
+              aria-label="Library import"
+            >
+              <div className="library-import-fill" style={{ width: `${importing.ratio * 100}%` }} />
+            </div>
+            <p className="library-import-name" title={importing.name}>
+              {importing.name}
+            </p>
+            <p className="library-import-eta">
+              {importing.percent}% · {formatImportEta(importing.etaMs)}
+            </p>
+            <span className="sr-only" aria-live="polite">
+              {importSpoken}
+            </span>
+          </div>
+        )}
         <div className="flex gap-2">
           <button
             disabled={busy}
@@ -643,7 +730,7 @@ export function LibraryBrowser() {
             onClick={() => file.current?.click()}
           >
             <Upload size={14} />
-            {busy ? "Working…" : "Import files"}
+            {importing ? "Importing…" : busy ? "Working…" : "Import files"}
           </button>
           <button
             disabled={busy}
